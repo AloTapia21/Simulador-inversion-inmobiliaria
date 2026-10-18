@@ -903,10 +903,26 @@ with tab1:
     flujo_operacion = arriendos_tot - gastos_tot - div_tot
     venta_neta = vd_yr - sh_yr - cv_yr
     gan_neta_val = venta_neta + flujo_operacion - pie_clp_v - cier_clp + iva_clp
-    detalle_gastos = {
-        clave: sum(valores[1:yr_venta + 1])
-        for clave, valores in R['gastos_detalle'].items()
-    }
+    if 'gastos_detalle' in R:
+        detalle_gastos = {
+            clave: sum(valores[1:yr_venta + 1])
+            for clave, valores in R['gastos_detalle'].items()
+        }
+    else:
+        # Compatibilidad con sesiones de Streamlit que conservan temporalmente
+        # una versión anterior del módulo importado durante el redespliegue.
+        detalle_gastos = {
+            "vacancia": arriendos_tot * params["vacancia"],
+            "administracion": arriendos_tot * params["adm"],
+            "reserva": arriendos_tot * params["reserva"],
+            "gastos_comunes": params["gcom"] * 12 * yr_venta,
+            "contribuciones": sum(R['contribuciones_anuales'][1:yr_venta + 1]),
+            "seguro": params["seguro"] * yr_venta,
+            "mantencion": sum(R['val_d'][:yr_venta]) * params["mant"],
+            "remodelaciones": params["uf"] * sum(
+                monto for anio, monto in params["remodelaciones"].items() if anio <= yr_venta
+            ),
+        }
 
     st.markdown('<div class="section-title">De dónde sale la ganancia</div>', unsafe_allow_html=True)
     st.markdown(
