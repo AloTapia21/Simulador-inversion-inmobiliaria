@@ -94,6 +94,55 @@ h1, h2, h3 { font-family: 'Syne', sans-serif !important; }
     margin-top: 0.25rem;
 }
 
+.iva-summary {
+    align-items: stretch;
+    background: linear-gradient(110deg, rgba(26,35,50,0.96), rgba(18,31,42,0.96));
+    border: 1px solid rgba(0,201,167,0.28);
+    border-left: 4px solid var(--teal);
+    border-radius: 12px;
+    display: grid;
+    gap: 0;
+    grid-template-columns: 1.25fr repeat(3, 1fr);
+    margin: 0.9rem 0 1.35rem;
+    overflow: hidden;
+}
+.iva-summary-main,
+.iva-summary-item {
+    min-width: 0;
+    padding: 0.95rem 1.15rem;
+}
+.iva-summary-item {
+    border-left: 1px solid rgba(61,81,102,0.42);
+}
+.iva-summary-kicker,
+.iva-summary-label {
+    color: var(--muted);
+    font-size: 0.67rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+}
+.iva-summary-value {
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    font-size: 1.05rem;
+    font-weight: 700;
+    line-height: 1.2;
+    margin-top: 0.25rem;
+    white-space: nowrap;
+}
+.iva-summary-main .iva-summary-value {
+    color: var(--teal);
+    font-size: 1.3rem;
+}
+.iva-summary-note {
+    color: var(--muted);
+    font-size: 0.68rem;
+    line-height: 1.35;
+    margin-top: 0.25rem;
+}
+.iva-summary-note strong { color: var(--teal); font-weight: 600; }
+
 .section-title {
     font-family: 'Syne', sans-serif;
     font-size: 0.75rem;
@@ -269,8 +318,16 @@ h1, h2, h3 { font-family: 'Syne', sans-serif !important; }
 .detail-note { color: var(--muted); font-size: 0.7rem; line-height: 1.45; margin-top: 0.7rem; }
 
 @media (max-width: 1050px) {
+    .iva-summary { grid-template-columns: 1fr 1fr; }
+    .iva-summary-item:nth-child(3) { border-left: none; border-top: 1px solid rgba(61,81,102,0.42); }
+    .iva-summary-item:nth-child(4) { border-top: 1px solid rgba(61,81,102,0.42); }
     .stage-grid { grid-template-columns: 1fr; }
     .result-strip { align-items: flex-start; flex-direction: column; }
+}
+
+@media (max-width: 650px) {
+    .iva-summary { grid-template-columns: 1fr; }
+    .iva-summary-item { border-left: none; border-top: 1px solid rgba(61,81,102,0.42); }
 }
 
 div[data-testid="stTabs"] button {
@@ -817,11 +874,21 @@ with tab1:
     # ── KPI Row 1 ──
     k1, k2, k3, k4, k5 = st.columns(5)
     subsidio_m = max(0, -R['flujo_n'][1] / 12)
-    capital_inicial_label = "Desembolso inicial neto" if R['cap_total'] >= 0 else "Caja inicial recibida"
+    capital_inicial_label = "Balance inicial"
     capital_inicial_valor = R['cap_total'] if R['cap_total'] >= 0 else -R['cap_total']
+    capital_inicial_texto = (
+        fmt_clp_short(capital_inicial_valor)
+        if R['cap_total'] >= 0
+        else f"+{fmt_clp_short(capital_inicial_valor)}"
+    )
+    capital_inicial_sub = (
+        "Sale de tu bolsillo · pie + cierre − IVA"
+        if R['cap_total'] >= 0
+        else "A favor · IVA supera pie + cierre"
+    )
     metrics_row1 = [
-        (k1, capital_inicial_label, fmt_clp_short(capital_inicial_valor),
-         "Pie + cierre − devolución IVA", "positive" if R['cap_total'] < 0 else ""),
+        (k1, capital_inicial_label, capital_inicial_texto,
+         capital_inicial_sub, "positive" if R['cap_total'] < 0 else ""),
         (k2, "Dividendo mensual",    fmt_clp_short(R['div_m']),     fmt_clp(R['div_m']),           "amber"),
         (k3, "Arriendo mes 1 (CLP)", fmt_clp_short(R['rent_m0']),   f"≈ {arr_uf:.1f} UF/mes",     ""),
         (k4, "Cap Rate neto año 1",  fmt_pct(R['cap_rate_neto']),   "Referencia histórica: 2%–4%", "positive" if R['cap_rate_neto'] >= 0.02 else "negative"),
@@ -837,22 +904,47 @@ with tab1:
             </div>""", unsafe_allow_html=True)
 
     if R['devolucion_iva'] > 0:
-        st.success(
-            f"Beneficio IVA incluido: {fmt_clp(R['devolucion_iva'])}. "
-            f"El costo efectivo baja a {fmt_clp(R['costo_efectivo'])}, mientras el crédito "
-            f"permanece en {fmt_clp(R['hipot'])}. Cap Rate sobre costo efectivo: "
-            f"{fmt_pct(R['cap_rate_costo_efectivo'])}."
-        )
-
-    st.markdown("<br>", unsafe_allow_html=True)
+        iva_pct_efectivo = R['devolucion_iva'] / R['val_clp'] if R['val_clp'] else 0
+        st.markdown(f"""
+        <div class="iva-summary">
+          <div class="iva-summary-main">
+            <div class="iva-summary-kicker">Beneficio IVA aplicado</div>
+            <div class="iva-summary-value">+{fmt_clp_short(R['devolucion_iva'])}</div>
+            <div class="iva-summary-note">Equivale al <strong>{fmt_pct(iva_pct_efectivo)}</strong> del valor contractual</div>
+          </div>
+          <div class="iva-summary-item">
+            <div class="iva-summary-label">Costo efectivo</div>
+            <div class="iva-summary-value">{fmt_clp_short(R['costo_efectivo'])}</div>
+            <div class="iva-summary-note">Valor del depto menos beneficio IVA</div>
+          </div>
+          <div class="iva-summary-item">
+            <div class="iva-summary-label">Crédito hipotecario</div>
+            <div class="iva-summary-value">{fmt_clp_short(R['hipot'])}</div>
+            <div class="iva-summary-note">No cambia con el beneficio</div>
+          </div>
+          <div class="iva-summary-item">
+            <div class="iva-summary-label">Cap Rate efectivo</div>
+            <div class="iva-summary-value">{fmt_pct(R['cap_rate_costo_efectivo'])}</div>
+            <div class="iva-summary-note">Calculado sobre el costo efectivo</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("<br>", unsafe_allow_html=True)
 
     # ── KPI Row 2 ──
     k6, k7, k8, k9, k10 = st.columns(5)
+    tir_card_value = fmt_pct(tir) if tir is not None else "No aplica"
+    tir_card_sub = (
+        f"Tasa crédito: {tasa_h*100:.1f}%"
+        if tir is not None
+        else "Balance inicial a favor; no hay TIR convencional"
+    )
     metrics_row2 = [
         (k6,  "Valor depto año " + str(yr_venta), fmt_clp_short(R['val_d'][yr_venta]), f"Plusvalía {plusvalia*100:.1f}%/año", "positive"),
         (k7,  "Ganancia neta al vender",          fmt_clp_short(gan),                  "Precio − Deuda − Costos + Flujos",    "positive" if (gan and gan > 0) else "negative"),
         (k8,  "Múltiplo del capital",              f"{roi:.2f}x" if roi else "—",       fmt_clp(R['capital_aportado']) + " aportado", "positive" if (roi and roi >= 1) else "negative"),
-        (k9,  "TIR",                               fmt_pct(tir) if tir else "—",        f"Tasa crédito: {tasa_h*100:.1f}%",   "positive" if (tir and tir > tasa_h) else "negative"),
+        (k9,  "TIR",                               tir_card_value,                        tir_card_sub,   "positive" if (tir and tir > tasa_h) else ("" if tir is None else "negative")),
         (k10, "vs ETF " + fmt_pct(etf_ret) + "/año", fmt_clp_short(diff),              "Diferencia entre ganancias netas",     "positive" if diff >= 0 else "negative"),
     ]
     for col, label, val, sub, cls in metrics_row2:
