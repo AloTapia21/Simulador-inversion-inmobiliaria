@@ -84,8 +84,38 @@ GLOSARIO = {
     },
     "Contribuciones": {
         "categoria": "Operación",
-        "definicion": "Pago anual ingresado por el usuario. El modelo lo mantiene constante en CLP.",
-        "formula": "Se usa directamente el monto anual ingresado.",
+        "definicion": "Impuesto Territorial del inmueble. Puede ingresarse el total anual real del SII o estimarse de forma anualizada desde el avalúo fiscal habitacional con los valores del segundo semestre de 2026.",
+        "formula": "Contribución neta por tramos + sobretasa fiscal aplicable; luego se proyecta con el reajuste anual seleccionado.",
+    },
+    "Avalúo fiscal": {
+        "categoria": "Contribuciones SII",
+        "definicion": "Valor asignado por el SII al inmueble para fines tributarios. No corresponde necesariamente al precio comercial ni al precio de compra.",
+        "formula": "Se ingresa desde el certificado de avalúo fiscal del rol de la propiedad.",
+    },
+    "Avalúo exento habitacional": {
+        "categoria": "Contribuciones SII",
+        "definicion": "Parte del avalúo fiscal habitacional que no queda afecta a contribuciones. Para 2026-S2 el modelo usa $61.711.570.",
+        "formula": "Avalúo afecto = máx(avalúo fiscal − $61.711.570, 0).",
+    },
+    "Tramos de contribuciones": {
+        "categoria": "Contribuciones SII",
+        "definicion": "Tasas anuales aplicadas al avalúo afecto. Para 2026-S2 se usa 0,893% hasta un avalúo fiscal de $220.398.431 y 1,042% sobre el exceso.",
+        "formula": "Base tramo 1 × 0,893% + base tramo 2 × 1,042%.",
+    },
+    "Sobretasa fiscal": {
+        "categoria": "Contribuciones SII",
+        "definicion": "Recargo fiscal anual considerado cuando el avalúo fiscal supera el monto de cambio de tasa habitacional.",
+        "formula": "Avalúo afecto × 0,025%, si el avalúo fiscal supera $220.398.431.",
+    },
+    "Cuotas de contribuciones": {
+        "categoria": "Contribuciones SII",
+        "definicion": "El total anual ordinario se paga en cuatro cuotas con vencimiento en abril, junio, septiembre y noviembre.",
+        "formula": "Cuota ordinaria = total anual / 4. En flujo calendario: Q1 = 0, Q2 = 2 cuotas, Q3 = 1 y Q4 = 1.",
+    },
+    "Flujo trimestral": {
+        "categoria": "Resultados",
+        "definicion": "Distribución del flujo anual del departamento en trimestres calendario para hacer visible el momento de pago de las contribuciones.",
+        "formula": "Arriendo trimestral − otros gastos − contribuciones que vencen en el trimestre − dividendos mensuales del trimestre.",
     },
     "Seguro hipotecario": {
         "categoria": "Operación",
@@ -183,7 +213,10 @@ GLOSARIO = {
 SUPUESTOS_Y_LIMITACIONES = [
     "Todos los valores y tasas de crecimiento se modelan en términos nominales; no se descuenta inflación.",
     "La UF ingresada se mantiene constante durante toda la proyección.",
-    "Gastos comunes, contribuciones y seguro se mantienen constantes en CLP.",
+    "Gastos comunes y seguro se mantienen constantes en CLP; las contribuciones crecen con el reajuste anual seleccionado.",
+    "La estimación de contribuciones usa valores SII habitacionales de 2026-S2 y debe actualizarse cuando cambien las tasas, exenciones o reavalúos.",
+    "La estimación no incluye derechos de aseo, alza gradual, beneficios personales, cuotas de reemplazo ni cambios particulares del rol; el giro SII prevalece.",
+    "Las remodelaciones no tienen mes definido y, solo para el detalle trimestral, se asignan al trimestre Oct–Dic del año correspondiente.",
     "No se modelan impuestos personales, tributación de la ganancia de capital ni costos de prepago del crédito.",
     "El escenario con 0% de pie es matemático y no implica disponibilidad real de ese financiamiento.",
     "El aporte mensual del ETF excluye gastos operacionales del inmueble; por eso no representa igualdad total de desembolsos.",

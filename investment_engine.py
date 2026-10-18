@@ -8,6 +8,48 @@ from math import isfinite
 
 
 HORIZONTE_ANIOS = 30
+EXENCION_HABITACIONAL_2026_S2 = 61_711_570
+CAMBIO_TASA_HABITACIONAL_2026_S2 = 220_398_431
+TASA_HABITACIONAL_TRAMO_1 = 0.00893
+TASA_HABITACIONAL_TRAMO_2 = 0.01042
+SOBRETASA_FISCAL = 0.00025
+
+
+def calcular_contribucion_habitacional(
+    avaluo_fiscal,
+    exencion=EXENCION_HABITACIONAL_2026_S2,
+    cambio_tasa=CAMBIO_TASA_HABITACIONAL_2026_S2,
+    tasa_tramo_1=TASA_HABITACIONAL_TRAMO_1,
+    tasa_tramo_2=TASA_HABITACIONAL_TRAMO_2,
+    sobretasa_fiscal=SOBRETASA_FISCAL,
+):
+    """Estima el Impuesto Territorial habitacional anual según valores SII 2026-S2.
+
+    No incluye derechos de aseo, alza gradual, beneficios personales, cuotas de
+    reemplazo ni modificaciones particulares del rol. El aviso SII prevalece.
+    """
+    if avaluo_fiscal < 0 or exencion < 0 or cambio_tasa <= exencion:
+        raise ValueError("Los valores del avalúo y los tramos deben ser válidos")
+
+    avaluo_afecto = max(0.0, avaluo_fiscal - exencion)
+    tramo_1 = max(0.0, min(avaluo_fiscal, cambio_tasa) - exencion)
+    tramo_2 = max(0.0, avaluo_fiscal - cambio_tasa)
+    contribucion_neta = tramo_1 * tasa_tramo_1 + tramo_2 * tasa_tramo_2
+    sobretasa = avaluo_afecto * sobretasa_fiscal if avaluo_fiscal > cambio_tasa else 0.0
+    total_anual = contribucion_neta + sobretasa
+
+    return {
+        "avaluo_fiscal": float(avaluo_fiscal),
+        "avaluo_exento": float(exencion),
+        "avaluo_afecto": avaluo_afecto,
+        "base_tramo_1": tramo_1,
+        "base_tramo_2": tramo_2,
+        "contribucion_neta": contribucion_neta,
+        "sobretasa_fiscal": sobretasa,
+        "total_anual": total_anual,
+        "cuota": total_anual / 4,
+        "vencimientos": ("Abril", "Junio", "Septiembre", "Noviembre"),
+    }
 
 
 def calcular_tir(flujos, max_iter=200, tol=1e-7):
@@ -123,8 +165,9 @@ def compute_simulation(p):
     rent_m0 = uf * p["arriendo_uf"]
 
     years = list(range(HORIZONTE_ANIOS + 1))
-    val_d, arr_b, gastos = [], [], []
+    val_d, arr_b, gastos, contribuciones_anuales = [], [], [], []
     flujo_n, flujo_a, gan_v = [], [], []
+    flujos_trimestrales = []
     etf_b, etf_saldo_hist, etf_aportes_hist = [], [], []
     etf_aporte_mensual_hist, etf_aportes_anuales = [], []
 
@@ -141,6 +184,7 @@ def compute_simulation(p):
         if yr == 0:
             arr_b.append(0.0)
             gastos.append(0.0)
+            contribuciones_anuales.append(0.0)
             flujo_n.append(-cap_total)
             flujo_a.append(-cap_total)
             gan_v.append(None)
@@ -149,6 +193,7 @@ def compute_simulation(p):
             etf_aportes_hist.append(etf_aportes)
             etf_aporte_mensual_hist.append(0.0)
             etf_aportes_anuales.append(0.0)
+            flujos_trimestrales.append([])
             continue
 
         rent_anual = rent_m0 * 12 * (1 + p["rent_gr"]) ** (yr - 1)
@@ -158,7 +203,8 @@ def compute_simulation(p):
         adm_loss = rent_anual * p["adm"]
         res_loss = rent_anual * p["reserva"]
         gcom_anual = p["gcom"] * 12
-        cont_anual = p["contrib"]
+        cont_anual = p["contrib"] * (1 + p.get("contrib_gr", 0.0)) ** (yr - 1)
+        contribuciones_anuales.append(cont_anual)
         seg_anual = p["seguro"]
         valor_inicio_anio = val_clp * (1 + p["plusvalia"]) ** (yr - 1)
         mant_anual = valor_inicio_anio * p["mant"]
@@ -173,6 +219,34 @@ def compute_simulation(p):
 
         costo_vta = vd * p["costo_venta"]
         gan_v.append(vd - saldo_h[yr] - costo_vta + flujo_acum)
+
+        # Flujo por trimestre calendario. Las cuotas SII vencen en abril,
+        # junio, septiembre y noviembre; por eso Q2 concentra dos cuotas.
+        gasto_recurrente_sin_contrib = gasto - cont_anual - remo
+        cuota_contribucion = cont_anual / 4
+        contrib_por_trimestre = (0.0, cuota_contribucion * 2, cuota_contribucion, cuota_contribucion)
+        etiquetas_trimestre = ("Ene-Mar", "Abr-Jun", "Jul-Sep", "Oct-Dic")
+        flujo_anual_trimestral = []
+        for trimestre in range(4):
+            mes_inicial = (yr - 1) * 12 + trimestre * 3
+            deuda_trimestre = sum(pagos_mensuales[mes_inicial:mes_inicial + 3])
+            remodelacion_trimestre = remo if trimestre == 3 else 0.0
+            gasto_trimestre = gasto_recurrente_sin_contrib / 4 + remodelacion_trimestre
+            flujo_trimestre = (
+                rent_anual / 4
+                - gasto_trimestre
+                - contrib_por_trimestre[trimestre]
+                - deuda_trimestre
+            )
+            flujo_anual_trimestral.append({
+                "periodo": etiquetas_trimestre[trimestre],
+                "arriendo": rent_anual / 4,
+                "gastos_sin_contribuciones": gasto_trimestre,
+                "contribuciones": contrib_por_trimestre[trimestre],
+                "dividendos": deuda_trimestre,
+                "flujo_neto": flujo_trimestre,
+            })
+        flujos_trimestrales.append(flujo_anual_trimestral)
 
         # Regla solicitada para el benchmark: el ETF parte con un pie hipotético
         # independiente del pie del departamento. Cada mes recibe solamente la
@@ -221,6 +295,8 @@ def compute_simulation(p):
         "val_d": val_d,
         "arr_b": arr_b,
         "gastos": gastos,
+        "contribuciones_anuales": contribuciones_anuales,
+        "flujos_trimestrales": flujos_trimestrales,
         "flujo_n": flujo_n,
         "flujo_a": flujo_a,
         "saldo_h": saldo_h,

@@ -8,7 +8,10 @@ import io
 from datetime import datetime
 
 from glossary import GLOSARIO, SUPUESTOS_Y_LIMITACIONES
-from investment_engine import compute_simulation as compute_financial_simulation
+from investment_engine import (
+    calcular_contribucion_habitacional,
+    compute_simulation as compute_financial_simulation,
+)
 
 # ─── PAGE CONFIG ────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -306,6 +309,7 @@ def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_r
         ["Plusvalia zona",   fmt_pct(plusvalia),        "Ano de venta",      str(yr_venta)],
         ["Vacancia",         fmt_pct(params['vacancia']), "ETF comparacion",  fmt_pct(etf_ret)],
         [f"Pie ETF ({int(params['etf_pie']*100)}%)", fmt_clp(R['etf_capital_inicial']), "Aporte ETF mes 1", fmt_clp(R['etf_aporte_mensual'][1])],
+        ["Contribuciones ano 1", fmt_clp(R['contribuciones_anuales'][1]), "Reajuste anual", fmt_pct(params['contrib_gr'])],
         ["Crecim. arriendo", fmt_pct(params['rent_gr']), "Flujo + desde ano", str(R['yr_pos']) if R['yr_pos'] else "No alcanza"],
     ]
     col_inp = PAGE_W * 0.48
@@ -508,7 +512,41 @@ with st.sidebar:
     vacancia = st.slider("Vacancia anual", 0.0, 20.0, float(ev['vac']), 1.0, format="%.0f%%") / 100
     adm      = st.slider("Comisión administradora", 0.0, 15.0, 8.0, 1.0, format="%.0f%%") / 100
     gcom     = st.number_input("Gastos comunes (CLP/mes)", value=100_000, min_value=0, step=5_000, format="%d")
-    contrib  = st.number_input("Contribuciones SII (CLP/año)", value=320_000, min_value=0, step=10_000, format="%d")
+    modo_contrib = st.selectbox(
+        "Contribuciones SII",
+        ["Monto anual conocido", "Estimar desde avalúo fiscal"],
+        help="El monto del giro o aviso SII es la fuente definitiva. La estimación usa tasas habitacionales del segundo semestre de 2026.",
+    )
+    detalle_contrib = None
+    if modo_contrib == "Monto anual conocido":
+        contrib = st.number_input(
+            "Monto total anual (CLP)", value=320_000, min_value=0, step=10_000, format="%d"
+        )
+    else:
+        avaluo_fiscal = st.number_input(
+            "Avalúo fiscal habitacional (CLP)",
+            value=100_000_000,
+            min_value=0,
+            step=1_000_000,
+            format="%d",
+            help="Usa el avalúo fiscal del certificado SII, no el precio comercial del departamento.",
+        )
+        detalle_contrib = calcular_contribucion_habitacional(avaluo_fiscal)
+        contrib = int(round(detalle_contrib["total_anual"]))
+        st.info(
+            f"Estimación anualizada: {fmt_clp(contrib)} · "
+            f"4 cuotas de {fmt_clp(detalle_contrib['cuota'])}"
+        )
+        st.caption(
+            f"Avalúo afecto: {fmt_clp(detalle_contrib['avaluo_afecto'])} · "
+            f"Contribución neta: {fmt_clp(detalle_contrib['contribucion_neta'])} · "
+            f"Sobretasa fiscal: {fmt_clp(detalle_contrib['sobretasa_fiscal'])}"
+        )
+    contrib_gr = st.slider(
+        "Reajuste anual contribuciones", 0.0, 10.0, 3.0, 0.5, format="%.1f%%",
+        help="Supuesto para proyectar años futuros; no intenta anticipar reavalúos ni cambios legales.",
+    ) / 100
+    st.caption("Vencimientos ordinarios: abril, junio, septiembre y noviembre. No incluye derechos de aseo.")
     seguro   = st.number_input("Seguro hipotecario (CLP/año)", value=120_000, min_value=0, step=5_000, format="%d")
     mant     = st.slider("Mantención anual (% valor)", 0.1, 2.0, 0.5, 0.1, format="%.1f%%") / 100
     reserva  = st.slider("Reserva contingencias (% arr.)", 0.0, 10.0, 5.0, 1.0, format="%.0f%%") / 100
@@ -554,7 +592,7 @@ with st.sidebar:
 # ─── COMPUTE ─────────────────────────────────────────────────────────────────
 params = dict(
     uf=uf_val, val_uf=dep_uf, arriendo_uf=arr_uf, rent_gr=rent_gr,
-    vacancia=vacancia, adm=adm, gcom=gcom, contrib=contrib,
+    vacancia=vacancia, adm=adm, gcom=gcom, contrib=contrib, contrib_gr=contrib_gr,
     seguro=seguro, mant=mant, reserva=reserva,
     pie=pie_pct, tasa=tasa_h, plazo=plazo,
     gastos_cierre=gc_pct, costo_venta=cv_pct,
@@ -787,6 +825,8 @@ with tab1:
             ("Tasa mensual",                   fmt_pct(tasa_h / 12)),
             ("Dividendo mensual",               fmt_clp(R['div_m'])),
             ("Dividendos año 1",                fmt_clp(R['pagos_hipoteca'][1])),
+            ("Contribuciones año 1",            fmt_clp(R['contribuciones_anuales'][1])),
+            ("Cuota ordinaria SII año 1",       fmt_clp(R['contribuciones_anuales'][1] / 4)),
             ("Arriendo bruto mes 1",            fmt_clp(R['rent_m0'])),
             ("Flujo neto año 1",                fmt_clp(R['flujo_n'][1])),
             (f"Saldo hipoteca año {yr_venta}",  fmt_clp(R['saldo_h'][yr_venta])),
@@ -886,6 +926,42 @@ with tab2:
         x=0.5, y=-0.08, showarrow=False, xref="paper", yref="paper",
         font=dict(size=9, color=FONT_COLOR))
     st.plotly_chart(fig_am, use_container_width=True)
+
+    # ── FLUJO TRIMESTRAL Y CONTRIBUCIONES ──
+    st.markdown('<div class="section-title">Flujo trimestral del departamento</div>', unsafe_allow_html=True)
+    st.caption(
+        "Las cuatro cuotas ordinarias de contribuciones se ubican según su vencimiento: "
+        "abril y junio en Abr–Jun, septiembre en Jul–Sep y noviembre en Oct–Dic. "
+        "Las remodelaciones sin fecha específica se asignan a Oct–Dic."
+    )
+    anio_trimestral = st.selectbox(
+        "Año a detallar", yrs[1:], index=yr_venta - 1, key="anio_flujo_trimestral"
+    )
+    detalle_trimestral = R['flujos_trimestrales'][anio_trimestral]
+    filas_trimestre = []
+    for trimestre in detalle_trimestral:
+        filas_trimestre.append({
+            "Periodo": trimestre["periodo"],
+            "Arriendo bruto": fmt_clp(trimestre["arriendo"]),
+            "Otros gastos": fmt_clp(trimestre["gastos_sin_contribuciones"]),
+            "Contribuciones": fmt_clp(trimestre["contribuciones"]),
+            "Dividendos": fmt_clp(trimestre["dividendos"]),
+            "Flujo neto": fmt_clp(trimestre["flujo_neto"]),
+        })
+    hdr_trim = "<tr>" + "".join(f"<th>{k}</th>" for k in filas_trimestre[0]) + "</tr>"
+    body_trim = "".join(
+        "<tr>" + "".join(f"<td>{valor}</td>" for valor in fila.values()) + "</tr>"
+        for fila in filas_trimestre
+    )
+    st.markdown(
+        f'<div style="overflow-x:auto"><table class="comp-table">{hdr_trim}{body_trim}</table></div>',
+        unsafe_allow_html=True,
+    )
+    flujo_trimestral_total = sum(item["flujo_neto"] for item in detalle_trimestral)
+    st.caption(
+        f"Total del año {anio_trimestral}: {fmt_clp(flujo_trimestral_total)} · "
+        f"Contribuciones: {fmt_clp(R['contribuciones_anuales'][anio_trimestral])}"
+    )
 
     # ── TABLA ──
     st.markdown('<div class="section-title">Tabla completa de flujos año a año</div>', unsafe_allow_html=True)
@@ -1205,6 +1281,14 @@ with tab6:
     st.warning("La regla solicitada para el ETF no iguala toda la caja invertida: excluye gastos operacionales del departamento. Para una comparación rigurosa se deberían igualar todos los desembolsos, impuestos y fechas y comparar las TIR después de impuestos.")
     for supuesto in SUPUESTOS_Y_LIMITACIONES:
         st.markdown(f"- {supuesto}")
+
+    st.markdown('<div class="section-title">Fuentes oficiales de contribuciones</div>', unsafe_allow_html=True)
+    st.markdown(
+        "La estimación usa los valores habitacionales publicados por el SII para el segundo semestre de 2026. "
+        "Consulta la [guía de cálculo y vencimientos](https://www.sii.cl/destacados/reavaluo/2025/4449-4452.html) "
+        "y los [reajustes, exenciones y tasas vigentes](https://www.sii.cl/ayudas/ayudas_por_servicios/2242-reajustes_exenciones-2468.html). "
+        "El giro asociado al rol de la propiedad siempre prevalece sobre esta estimación."
+    )
 
     st.markdown('<div class="section-title">Diccionario de conceptos y fórmulas</div>', unsafe_allow_html=True)
     categorias = ["Todas"] + sorted({item["categoria"] for item in GLOSARIO.values()})
