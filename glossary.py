@@ -12,6 +12,16 @@ GLOSARIO = {
         "definicion": "Precio de compra expresado en UF y convertido a pesos con la UF ingresada.",
         "formula": "Valor CLP = valor en UF × UF en CLP.",
     },
+    "Devolución efectiva de IVA": {
+        "categoria": "Beneficio IVA",
+        "definicion": "Monto que la inmobiliaria confirma y restituye al comprador en una operación elegible de primera venta de vivienda nueva. No equivale automáticamente al 19% del precio porque el terreno no forma parte de la base afecta y cada operación puede diferir.",
+        "formula": "Monto exacto ingresado, o valor del departamento × porcentaje efectivo seleccionado.",
+    },
+    "Costo efectivo del departamento": {
+        "categoria": "Beneficio IVA",
+        "definicion": "Costo económico después de considerar la devolución de IVA. No reemplaza el precio contractual ni el valor de mercado.",
+        "formula": "Valor contractual del departamento − devolución efectiva de IVA.",
+    },
     "Pie del departamento": {
         "categoria": "Financiamiento",
         "definicion": "Porcentaje del precio que se paga al inicio. Puede configurarse en 0% para analizar financiamiento total como supuesto teórico.",
@@ -21,6 +31,11 @@ GLOSARIO = {
         "categoria": "Financiamiento",
         "definicion": "Costos iniciales asociados a la compra. El simulador los trata como un porcentaje del precio y como capital aportado.",
         "formula": "Gastos de cierre = valor del departamento × porcentaje de cierre.",
+    },
+    "Capital inicial neto": {
+        "categoria": "Financiamiento",
+        "definicion": "Desembolso inicial neto del comprador una vez recibida la devolución de IVA modelada.",
+        "formula": "Pie + gastos de cierre − devolución efectiva de IVA.",
     },
     "Monto hipotecario": {
         "categoria": "Financiamiento",
@@ -140,7 +155,7 @@ GLOSARIO = {
     "Flujo acumulado": {
         "categoria": "Resultados",
         "definicion": "Suma del desembolso inicial y todos los flujos netos anuales hasta la fecha.",
-        "formula": "−capital inicial + suma de flujos netos.",
+        "formula": "−capital inicial neto + suma de flujos netos.",
     },
     "Plusvalía": {
         "categoria": "Venta",
@@ -159,13 +174,18 @@ GLOSARIO = {
     },
     "Capital aportado al departamento": {
         "categoria": "Resultados",
-        "definicion": "Pie, gastos de cierre y todos los flujos negativos que el inversionista debió financiar.",
-        "formula": "Capital inicial + suma de déficits anuales.",
+        "definicion": "Capital inicial neto positivo y todos los flujos negativos que el inversionista debió financiar.",
+        "formula": "máx(capital inicial neto, 0) + suma de déficits anuales.",
     },
     "Cap Rate neto": {
         "categoria": "Indicadores",
-        "definicion": "Rendimiento operacional del primer año antes del financiamiento.",
-        "formula": "Ingreso neto operacional del año 1 / valor del departamento.",
+        "definicion": "Rendimiento operacional del primer año antes del financiamiento, calculado sobre el valor contractual para mantener comparabilidad con el escenario sin beneficio.",
+        "formula": "Ingreso neto operacional del año 1 / valor contractual del departamento.",
+    },
+    "Cap Rate sobre costo efectivo": {
+        "categoria": "Beneficio IVA",
+        "definicion": "Indicador complementario que muestra el rendimiento operacional sobre el costo económico después de la devolución de IVA.",
+        "formula": "Ingreso neto operacional del año 1 / (valor del departamento − devolución de IVA).",
     },
     "TIR": {
         "categoria": "Indicadores",
@@ -216,6 +236,9 @@ SUPUESTOS_Y_LIMITACIONES = [
     "Gastos comunes y seguro se mantienen constantes en CLP; las contribuciones crecen con el reajuste anual seleccionado.",
     "La estimación de contribuciones usa valores SII habitacionales de 2026-S2 y debe actualizarse cuando cambien las tasas, exenciones o reavalúos.",
     "La estimación no incluye derechos de aseo, alza gradual, beneficios personales, cuotas de reemplazo ni cambios particulares del rol; el giro SII prevalece.",
+    "La devolución de IVA es opcional, se reconoce como caja en el momento inicial y no reduce el precio contractual, la plusvalía ni el crédito hipotecario del escenario.",
+    "El simulador no determina si una compraventa cumple la exención transitoria: exige usar el monto efectivamente restituido o confirmado por la inmobiliaria y verificar la normativa vigente.",
+    "Si la devolución supera el pie y los gastos de cierre, la TIR convencional no se muestra porque el flujo comienza con una entrada neta y puede producir una rentabilidad ambigua.",
     "Las remodelaciones no tienen mes definido y, solo para el detalle trimestral, se asignan al trimestre Oct–Dic del año correspondiente.",
     "No se modelan impuestos personales, tributación de la ganancia de capital ni costos de prepago del crédito.",
     "El escenario con 0% de pie es matemático y no implica disponibilidad real de ese financiamiento.",

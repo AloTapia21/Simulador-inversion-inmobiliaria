@@ -18,6 +18,7 @@ Herramienta interactiva para evaluar y comparar inversiones en departamentos de 
 | Dashboard KPIs | TIR, múltiplo del capital, CAGR, Cap Rate y ganancia neta en tiempo real |
 | Proyección de flujos | Gráfico de amortización a 30 años y detalle trimestral de caja |
 | Contribuciones SII | Monto anual real o estimación desde avalúo fiscal, con vencimientos por trimestre |
+| Beneficio IVA vivienda nueva | Devolución opcional por porcentaje o monto exacto, sin reducir el crédito hipotecario |
 | Análisis de sensibilidad | Impacto de plusvalía y tasa hipotecaria |
 | Comparador de propiedades | Evalúa hasta 5 propiedades en paralelo |
 | Comparación ETF | Pie inicial independiente y aportes mensuales por diferencia dividendo−arriendo |

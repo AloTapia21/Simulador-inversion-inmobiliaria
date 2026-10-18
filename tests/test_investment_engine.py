@@ -29,6 +29,7 @@ def parametros_base(**cambios):
         "plazo": 15,
         "gastos_cierre": 0.025,
         "costo_venta": 0.025,
+        "devolucion_iva": 0,
         "plusvalia": 0.055,
         "etf_ret": 0.10,
         "etf_pie": 0.20,
@@ -108,6 +109,34 @@ class SimulacionTests(unittest.TestCase):
         self.assertEqual(resultado["pie_clp"], 0)
         self.assertAlmostEqual(resultado["etf_capital_inicial"], resultado["val_clp"] * 0.20)
 
+    def test_devolucion_iva_reduce_costo_y_capital_pero_no_el_credito(self):
+        sin_beneficio = compute_simulation(parametros_base(devolucion_iva=0))
+        con_beneficio = compute_simulation(parametros_base(devolucion_iva=14_000_000))
+
+        self.assertEqual(con_beneficio["devolucion_iva"], 14_000_000)
+        self.assertEqual(con_beneficio["costo_efectivo"], con_beneficio["val_clp"] - 14_000_000)
+        self.assertEqual(
+            con_beneficio["cap_total"], con_beneficio["cap_total_bruto"] - 14_000_000
+        )
+        self.assertEqual(con_beneficio["hipot"], sin_beneficio["hipot"])
+        self.assertEqual(con_beneficio["div_m"], sin_beneficio["div_m"])
+        self.assertAlmostEqual(
+            con_beneficio["gan_yr"] - sin_beneficio["gan_yr"], 14_000_000
+        )
+        self.assertEqual(con_beneficio["cap_rate_neto"], sin_beneficio["cap_rate_neto"])
+        self.assertGreater(
+            con_beneficio["cap_rate_costo_efectivo"], con_beneficio["cap_rate_neto"]
+        )
+
+    def test_devolucion_superior_al_desembolso_inicial_no_muestra_tir_convencional(self):
+        resultado = compute_simulation(
+            parametros_base(pie=0.0, devolucion_iva=14_000_000)
+        )
+
+        self.assertGreater(resultado["flujo_n"][0], 0)
+        self.assertIsNone(resultado["tir"])
+        self.assertGreaterEqual(resultado["capital_aportado"], 0)
+
     def test_aporte_etf_es_solo_diferencia_positiva_entre_dividendo_y_arriendo(self):
         resultado = compute_simulation(
             parametros_base(
@@ -163,6 +192,10 @@ class SimulacionTests(unittest.TestCase):
     def test_rechaza_un_pie_fuera_de_rango(self):
         with self.assertRaises(ValueError):
             compute_simulation(parametros_base(pie=1.01))
+
+    def test_rechaza_devolucion_iva_superior_al_valor_del_departamento(self):
+        with self.assertRaises(ValueError):
+            compute_simulation(parametros_base(devolucion_iva=200_000_001))
 
 
 if __name__ == "__main__":

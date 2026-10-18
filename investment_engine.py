@@ -150,9 +150,17 @@ def compute_simulation(p):
         raise ValueError(f"El año de venta debe estar entre 1 y {HORIZONTE_ANIOS}")
 
     val_clp = uf * val_uf
+    devolucion_iva = float(p.get("devolucion_iva", 0.0))
+    if not 0 <= devolucion_iva <= val_clp:
+        raise ValueError("La devolución de IVA debe estar entre cero y el valor del departamento")
+
     pie_clp = val_clp * p["pie"]
     cierre = val_clp * p["gastos_cierre"]
-    cap_total = pie_clp + cierre
+    cap_total_bruto = pie_clp + cierre
+    cap_total = cap_total_bruto - devolucion_iva
+    costo_efectivo = val_clp - devolucion_iva
+    # La restitución se modela como caja recibida al inicio. Por solicitud del
+    # usuario no reduce el precio contractual ni el crédito ya otorgado.
     hipot = val_clp * (1 - p["pie"])
 
     plan = calcular_plan_hipotecario(hipot, p["tasa"], p["plazo"])
@@ -268,15 +276,21 @@ def compute_simulation(p):
         etf_aporte_mensual_hist.append(aporte_representativo)
         etf_aportes_anuales.append(aporte_anual_etf)
 
-    cap_rate_neto = (
+    ingreso_operacional_neto = (
         rent_m0 * 12 * (1 - p["vacancia"] - p["adm"] - p["reserva"])
         - (p["gcom"] * 12 + p["contrib"] + p["seguro"])
         - val_clp * p["mant"]
-    ) / val_clp
+    )
+    cap_rate_neto = ingreso_operacional_neto / val_clp
+    cap_rate_costo_efectivo = (
+        ingreso_operacional_neto / costo_efectivo if costo_efectivo > 0 else None
+    )
 
     yr_venta = p["yr_venta"]
     gan_yr = gan_v[yr_venta] if yr_venta > 0 else None
-    capital_aportado = cap_total + sum(max(0.0, -flujo_n[i]) for i in range(1, yr_venta + 1))
+    capital_aportado = max(0.0, cap_total) + sum(
+        max(0.0, -flujo_n[i]) for i in range(1, yr_venta + 1)
+    )
     roi = ((gan_yr + capital_aportado) / capital_aportado) if gan_yr is not None and capital_aportado > 0 else None
     cagr = (roi ** (1 / yr_venta) - 1) if roi is not None and roi > 0 and yr_venta > 0 else None
     etf_yr = etf_b[yr_venta]
@@ -311,17 +325,21 @@ def compute_simulation(p):
         "amort_anual": amort_anual,
         "pagos_hipoteca": pagos_hipoteca,
         "cap_total": cap_total,
+        "cap_total_bruto": cap_total_bruto,
         "capital_aportado": capital_aportado,
         "val_clp": val_clp,
+        "devolucion_iva": devolucion_iva,
+        "costo_efectivo": costo_efectivo,
         "pie_clp": pie_clp,
         "hipot": hipot,
         "div_m": div_m,
         "rent_m0": rent_m0,
         "cap_rate_neto": cap_rate_neto,
+        "cap_rate_costo_efectivo": cap_rate_costo_efectivo,
         "gan_yr": gan_yr,
         "roi": roi,
         "cagr": cagr,
-        "tir": calcular_tir(flujos_tir),
+        "tir": calcular_tir(flujos_tir) if cap_total > 0 else None,
         "etf_yr": etf_yr,
         "yr_pos": yr_pos,
         "yr_venta": yr_venta,

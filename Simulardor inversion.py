@@ -305,7 +305,8 @@ def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_r
         ["Valor depto",      fmt_clp(R['val_clp']),    "Arriendo inicial",  fmt_clp(arr_clp)+"/mes"],
         [f"Pie ({int(params['pie']*100)}%)", fmt_clp(R['pie_clp']), "Hipotecario", fmt_clp(R['hipot'])],
         ["Tasa hipotecaria", fmt_pct(tasa_h),          "Dividendo mensual", fmt_clp(R['div_m'])],
-        ["Plazo credito",    f"{params['plazo']} anos",  "Capital inicial", fmt_clp(R['cap_total'])],
+        ["Plazo credito",    f"{params['plazo']} anos",  "Capital inicial neto", fmt_clp(R['cap_total'])],
+        ["Devolucion IVA",   fmt_clp(R['devolucion_iva']), "Costo efectivo", fmt_clp(R['costo_efectivo'])],
         ["Plusvalia zona",   fmt_pct(plusvalia),        "Ano de venta",      str(yr_venta)],
         ["Vacancia",         fmt_pct(params['vacancia']), "ETF comparacion",  fmt_pct(etf_ret)],
         [f"Pie ETF ({int(params['etf_pie']*100)}%)", fmt_clp(R['etf_capital_inicial']), "Aporte ETF mes 1", fmt_clp(R['etf_aporte_mensual'][1])],
@@ -334,6 +335,7 @@ def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_r
         ["TIR",                    fmt_pct(tir) if tir else "-",   f"Referencia credito: {fmt_pct(tasa_h)}"],
         ["CAGR anual",             fmt_pct(R['cagr']),              "Rentabilidad compuesta anual"],
         ["Cap Rate neto ano 1",    fmt_pct(R['cap_rate_neto']),     "Referencia historica: 2%-4%"],
+        ["Cap Rate costo efectivo", fmt_pct(R['cap_rate_costo_efectivo']), "Incluye devolucion IVA"],
         [f"vs ETF {fmt_pct(etf_ret)}", fmt_clp(diff),             "Diferencia a favor del depto"],
         ["Ganancia neta ETF", fmt_clp(R['etf_yr']),               f"Saldo {fmt_clp(R['etf_saldo'][yr_venta])}"],
         [f"Valor depto ano {yr_venta}", fmt_clp(R['val_d'][yr_venta]), f"Con plusvalia {fmt_pct(plusvalia)}"],
@@ -560,6 +562,49 @@ with st.sidebar:
     cv_pct   = st.number_input("Costo venta (%)", value=2.5, min_value=0.0, max_value=20.0, step=0.1, format="%.1f") / 100
 
     st.divider()
+    st.markdown('<div class="section-title">Beneficio IVA Vivienda Nueva</div>', unsafe_allow_html=True)
+    aplicar_devolucion_iva = st.checkbox(
+        "Incluir devolución efectiva de IVA",
+        value=False,
+        help="Actívalo solo si la inmobiliaria confirma que la compraventa cumple los requisitos y el monto que restituirá.",
+    )
+    devolucion_iva = 0
+    if aplicar_devolucion_iva:
+        modo_devolucion_iva = st.selectbox(
+            "Ingresar beneficio como",
+            ["Porcentaje del valor", "Monto exacto en CLP"],
+        )
+        valor_compra_clp = uf_val * dep_uf
+        if modo_devolucion_iva == "Porcentaje del valor":
+            devolucion_iva_pct = st.number_input(
+                "Devolución efectiva (% del valor)",
+                value=7.0,
+                min_value=0.0,
+                max_value=20.0,
+                step=0.1,
+                format="%.1f",
+                help="No es la tasa legal de IVA. Es el monto efectivamente devuelto dividido por el precio total.",
+            ) / 100
+            devolucion_iva = int(round(valor_compra_clp * devolucion_iva_pct))
+        else:
+            devolucion_iva = st.number_input(
+                "Monto confirmado por la inmobiliaria (CLP)",
+                value=int(round(valor_compra_clp * 0.07)),
+                min_value=0,
+                max_value=int(valor_compra_clp),
+                step=100_000,
+                format="%d",
+            )
+        st.success(
+            f"Devolución inicial: {fmt_clp(devolucion_iva)} · "
+            f"Costo efectivo: {fmt_clp(valor_compra_clp - devolucion_iva)}"
+        )
+    st.caption(
+        "Se registra como caja recibida al inicio y no reduce el crédito hipotecario. "
+        "No corresponde automáticamente al 19% del precio."
+    )
+
+    st.divider()
     st.markdown('<div class="section-title">Plusvalía & Zona</div>', unsafe_allow_html=True)
     zona = st.selectbox("Zona RM", [
         "Premium — 7.5% (Vitacura, El Golf)",
@@ -595,7 +640,7 @@ params = dict(
     vacancia=vacancia, adm=adm, gcom=gcom, contrib=contrib, contrib_gr=contrib_gr,
     seguro=seguro, mant=mant, reserva=reserva,
     pie=pie_pct, tasa=tasa_h, plazo=plazo,
-    gastos_cierre=gc_pct, costo_venta=cv_pct,
+    gastos_cierre=gc_pct, costo_venta=cv_pct, devolucion_iva=devolucion_iva,
     plusvalia=plusvalia, etf_ret=etf_ret, etf_pie=etf_pie,
     yr_venta=yr_venta, remodelaciones=remos,
 )
@@ -608,6 +653,8 @@ roi    = R['roi']
 cagr   = R['cagr']
 tir    = R['tir']
 yr_pos = R['yr_pos']
+roi_txt = f"{roi:.2f}x" if roi is not None else "no calculable"
+tir_txt = fmt_pct(tir) if tir is not None else "no calculable"
 
 
 # ─── HEADER ──────────────────────────────────────────────────────────────────
@@ -653,8 +700,11 @@ with tab1:
     # ── KPI Row 1 ──
     k1, k2, k3, k4, k5 = st.columns(5)
     subsidio_m = max(0, -R['flujo_n'][1] / 12)
+    capital_inicial_label = "Desembolso inicial neto" if R['cap_total'] >= 0 else "Caja inicial recibida"
+    capital_inicial_valor = R['cap_total'] if R['cap_total'] >= 0 else -R['cap_total']
     metrics_row1 = [
-        (k1, "Capital inicial",      fmt_clp_short(R['cap_total']), fmt_clp(R['cap_total']),      ""),
+        (k1, capital_inicial_label, fmt_clp_short(capital_inicial_valor),
+         "Pie + cierre − devolución IVA", "positive" if R['cap_total'] < 0 else ""),
         (k2, "Dividendo mensual",    fmt_clp_short(R['div_m']),     fmt_clp(R['div_m']),           "amber"),
         (k3, "Arriendo mes 1 (CLP)", fmt_clp_short(R['rent_m0']),   f"≈ {arr_uf:.1f} UF/mes",     ""),
         (k4, "Cap Rate neto año 1",  fmt_pct(R['cap_rate_neto']),   "Referencia histórica: 2%–4%", "positive" if R['cap_rate_neto'] >= 0.02 else "negative"),
@@ -668,6 +718,14 @@ with tab1:
               <div class="metric-value {cls}">{val}</div>
               <div class="metric-sub">{sub}</div>
             </div>""", unsafe_allow_html=True)
+
+    if R['devolucion_iva'] > 0:
+        st.success(
+            f"Beneficio IVA incluido: {fmt_clp(R['devolucion_iva'])}. "
+            f"El costo efectivo baja a {fmt_clp(R['costo_efectivo'])}, mientras el crédito "
+            f"permanece en {fmt_clp(R['hipot'])}. Cap Rate sobre costo efectivo: "
+            f"{fmt_pct(R['cap_rate_costo_efectivo'])}."
+        )
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -695,16 +753,16 @@ with tab1:
     if gan and diff > 0 and roi and roi >= 1.5:
         verdict_cls = "verdict-win"; icon = "✅"
         msg = f"<b>Buena inversión</b> — El depto supera al ETF por <b>{fmt_clp(diff)}</b> al año {yr_venta}. " \
-              f"Múltiplo <b>{roi:.2f}x</b> · TIR <b>{fmt_pct(tir)}</b> · CAGR <b>{fmt_pct(cagr)}</b>. " \
+              f"Múltiplo <b>{roi_txt}</b> · TIR <b>{tir_txt}</b> · CAGR <b>{fmt_pct(cagr)}</b>. " \
               f"{'Flujo positivo en año ' + str(yr_pos) + '.' if yr_pos else 'Flujo negativo — apuesta a la plusvalía.'}"
     elif gan and diff >= 0:
         verdict_cls = "verdict-warn"; icon = "⚠️"
         msg = f"<b>Inversión aceptable</b> — Depto supera levemente al ETF ({fmt_clp(diff)}). " \
-              f"Múltiplo {roi:.2f}x · TIR {fmt_pct(tir)}."
+              f"Múltiplo {roi_txt} · TIR {tir_txt}."
     else:
         verdict_cls = "verdict-lose"; icon = "❌"
         msg = f"<b>El ETF gana en este escenario</b> — El ETF daría <b>{fmt_clp(-diff)}</b> más al año {yr_venta}. " \
-              f"TIR {fmt_pct(tir)} vs tasa crédito {tasa_h*100:.1f}%."
+              f"TIR {tir_txt} vs tasa crédito {tasa_h*100:.1f}%."
     st.markdown(f'<div class="verdict {verdict_cls}" style="font-size:0.88rem">{icon} {msg}</div>',
                 unsafe_allow_html=True)
     st.info(
@@ -793,33 +851,43 @@ with tab1:
         fig3.update_layout(**ly3)
         st.plotly_chart(fig3, use_container_width=True)
 
-    # ── DONUT + RESUMEN ──
+    # ── DESEMBOLSO + RESUMEN ──
     c_pie, c_info = st.columns([1, 1.6])
     with c_pie:
         pie_clp_v = R['pie_clp']
         cier_clp  = R['val_clp'] * gc_pct
         div_tot   = sum(R['pagos_hipoteca'][1:yr_venta + 1])
-        total_out = pie_clp_v + cier_clp + div_tot
-        fig4 = go.Figure(go.Pie(
-            labels=["Pie inicial", "Gastos cierre", f"Dividendos {yr_venta} años"],
-            values=[pie_clp_v, cier_clp, div_tot], hole=0.55,
-            marker=dict(colors=[TEAL, AMBER, SKY], line=dict(color=PLOT_BG, width=2)),
-            textinfo="label+percent", textfont=dict(size=9),
-            hovertemplate="%{label}: $%{value:,.0f}<extra></extra>"))
-        fig4.update_layout(**base_layout(f"Desembolso total a {yr_venta} años", height=290))
-        fig4.update_layout(showlegend=False)
-        fig4.add_annotation(text=f"{fmt_clp_short(total_out)}<br><span style='font-size:9px'>total salida</span>",
-                            x=0.5, y=0.5, showarrow=False, align="center",
-                            font=dict(family="Syne", size=12, color="#e8edf2"))
+        total_out = pie_clp_v + cier_clp + div_tot - R['devolucion_iva']
+        fig4 = go.Figure(go.Waterfall(
+            x=["Pie", "Cierre", f"Dividendos\n{yr_venta} años", "Devolución\nIVA", "Total neto"],
+            measure=["relative", "relative", "relative", "relative", "total"],
+            y=[pie_clp_v / 1e6, cier_clp / 1e6, div_tot / 1e6, -R['devolucion_iva'] / 1e6, 0],
+            increasing=dict(marker=dict(color=ROSE)),
+            decreasing=dict(marker=dict(color=TEAL)),
+            totals=dict(marker=dict(color=SKY)),
+            connector=dict(line=dict(color=GRID_COLOR)),
+            text=[fmt_clp_short(pie_clp_v), fmt_clp_short(cier_clp), fmt_clp_short(div_tot),
+                  f"−{fmt_clp_short(R['devolucion_iva'])}", fmt_clp_short(total_out)],
+            textposition="outside",
+            hovertemplate="%{x}: $%{y:.1f}M<extra></extra>",
+        ))
+        layout4 = base_layout(f"Desembolso neto a {yr_venta} años", height=290)
+        layout4['yaxis']['ticksuffix'] = "M"
+        layout4['showlegend'] = False
+        fig4.update_layout(**layout4)
         st.plotly_chart(fig4, use_container_width=True)
 
     with c_info:
         st.markdown('<div class="section-title">Resumen financiero</div>', unsafe_allow_html=True)
         info_rows = [
             ("Valor depto",                    fmt_clp(R['val_clp'])),
+            ("Devolución efectiva de IVA",       fmt_clp(R['devolucion_iva'])),
+            ("Costo efectivo del depto",        fmt_clp(R['costo_efectivo'])),
+            ("Cap Rate sobre costo efectivo",   fmt_pct(R['cap_rate_costo_efectivo'])),
             (f"Pie inicial ({int(pie_pct*100)}%)", fmt_clp(R['pie_clp'])),
             ("Gastos cierre",                  fmt_clp(R['val_clp'] * gc_pct)),
-            ("Capital inicial",                 fmt_clp(R['cap_total'])),
+            ("Capital inicial bruto",           fmt_clp(R['cap_total_bruto'])),
+            ("Capital inicial neto",            fmt_clp(R['cap_total'])),
             ("Capital aportado al vender",      fmt_clp(R['capital_aportado'])),
             ("Monto hipotecario",               fmt_clp(R['hipot'])),
             ("Tasa mensual",                   fmt_pct(tasa_h / 12)),
@@ -1088,10 +1156,15 @@ with tab4:
             plus_i    = st.number_input("Plusvalía %/año", value=[5.5, 7.5, 4.0, 5.5][i], key=f"plus_{idx}", step=0.5) / 100
             yr_v_i    = st.number_input("Año de venta", value=[10, 15, 8, 12][i], key=f"yrv_{idx}", min_value=1, max_value=30)
             tasa_i    = st.number_input("Tasa hipot. %", value=[4.2, 4.0, 3.8, 4.5][i], key=f"tasa_{idx}", step=0.01, format="%.2f") / 100
+            iva_i     = st.number_input(
+                "Devolución IVA (% valor)", value=0.0, key=f"iva_{idx}",
+                min_value=0.0, max_value=20.0, step=0.1, format="%.1f"
+            ) / 100
             sim_names.append(name)
             p_i = dict(params)
             p_i.update(val_uf=dep_uf_i, arriendo_uf=arr_i, plusvalia=plus_i,
-                       yr_venta=yr_v_i, tasa=tasa_i)
+                       yr_venta=yr_v_i, tasa=tasa_i,
+                       devolucion_iva=uf_val * dep_uf_i * iva_i)
             sim_params.append(p_i)
 
     results = [compute_financial_simulation(p) for p in sim_params[:n_sims]]
@@ -1101,11 +1174,14 @@ with tab4:
 
     metrics_comp = [
         ("Valor depto",              [fmt_clp(r['val_clp']) for r in results]),
-        ("Capital inicial",          [fmt_clp(r['cap_total']) for r in results]),
+        ("Devolución efectiva IVA",  [fmt_clp(r['devolucion_iva']) for r in results]),
+        ("Costo efectivo depto",     [fmt_clp(r['costo_efectivo']) for r in results]),
+        ("Capital inicial neto",     [fmt_clp(r['cap_total']) for r in results]),
         ("Capital total aportado",   [fmt_clp(r['capital_aportado']) for r in results]),
         ("Dividendo mensual",        [fmt_clp(r['div_m']) for r in results]),
         ("Arriendo mes 1",           [fmt_clp(r['rent_m0']) for r in results]),
         ("Cap Rate neto año 1",      [fmt_pct(r['cap_rate_neto']) for r in results]),
+        ("Cap Rate costo efectivo",   [fmt_pct(r['cap_rate_costo_efectivo']) for r in results]),
         ("Plusvalía/año",            [fmt_pct(p['plusvalia']) for p in sim_params[:n_sims]]),
         ("Año de venta",             [str(r['yr_venta']) for r in results]),
         ("Valor depto al vender",    [fmt_clp(r['val_d'][r['yr_venta']]) for r in results]),
@@ -1179,7 +1255,9 @@ with tab5:
             ("📐 Plusvalía nominal/año", f"Tu zona: {plusvalia*100:.1f}%",
              "El motor principal de rentabilidad. Con crédito hipotecario, la plusvalía actúa sobre el 100% del depto pero tú solo pusiste el pie — esto se llama apalancamiento financiero y multiplica tu retorno sobre capital propio."),
             ("🏘️ Cap Rate neto", f"Tu caso: {R['cap_rate_neto']*100:.2f}%",
-             "Arriendo neto anual ÷ valor del depto. Mide el rendimiento operacional antes del crédito. El rango 2%–4% mostrado por la app es una referencia histórica ilustrativa, no una regla de decisión."),
+             "Arriendo neto anual ÷ valor contractual del depto. Mide el rendimiento operacional antes del crédito. El rango 2%–4% mostrado por la app es una referencia histórica ilustrativa, no una regla de decisión. La app muestra por separado el Cap Rate sobre costo efectivo cuando existe devolución de IVA."),
+            ("🧾 Devolución IVA vivienda nueva", fmt_clp(R['devolucion_iva']),
+             "Se trata como caja recibida al inicio: reduce el costo efectivo y el capital inicial neto, pero no modifica el precio contractual, la plusvalía ni el crédito. Debe ingresarse el monto confirmado por la inmobiliaria; no equivale automáticamente al 19% del precio."),
             ("📉 Vacancia", f"Usas: {vacancia*100:.0f}%",
              "Porcentaje del arriendo anual que se descuenta por periodos sin ingresos. Debe ajustarse según evidencia de la propiedad y su mercado; impacta directamente el flujo."),
             ("📈 Crecimiento arriendo", f"Usas: {rent_gr*100:.1f}%/año",
@@ -1288,6 +1366,22 @@ with tab6:
         "Consulta la [guía de cálculo y vencimientos](https://www.sii.cl/destacados/reavaluo/2025/4449-4452.html) "
         "y los [reajustes, exenciones y tasas vigentes](https://www.sii.cl/ayudas/ayudas_por_servicios/2242-reajustes_exenciones-2468.html). "
         "El giro asociado al rol de la propiedad siempre prevalece sobre esta estimación."
+    )
+
+    st.markdown('<div class="section-title">Fuente y alcance del beneficio IVA</div>', unsafe_allow_html=True)
+    st.warning(
+        "La app no determina elegibilidad tributaria. El beneficio se modela solo cuando existe un monto "
+        "efectivamente devuelto o confirmado por la inmobiliaria. Se supone recibido al inicio y el crédito "
+        "hipotecario permanece sin cambios."
+    )
+    st.markdown(
+        "La medida transitoria se refiere a la primera venta de viviendas nuevas y contempla requisitos de "
+        "recepción municipal, fecha y documentación. El mecanismo retroactivo exige que el IVA haya sido "
+        "restituido al comprador. Revisa el [anuncio del Ministerio de Hacienda]"
+        "(https://www.hacienda.cl/noticias-y-eventos/noticias/-ministro-de-hacienda-detalla-medidas-economicas-del-proyecto-de-ley-de) "
+        "y el [registro legislativo de la BCN]"
+        "(https://www.bcn.cl/laborparlamentaria/documento?id=710383), además de la factura y confirmación "
+        "escrita de la inmobiliaria."
     )
 
     st.markdown('<div class="section-title">Diccionario de conceptos y fórmulas</div>', unsafe_allow_html=True)
