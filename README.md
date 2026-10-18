@@ -19,9 +19,11 @@ Herramienta interactiva para evaluar y comparar inversiones en departamentos de 
 | Proyección de flujos | Gráfico de amortización a 30 años |
 | Análisis de sensibilidad | Impacto de plusvalía y tasa hipotecaria |
 | Comparador de propiedades | Evalúa hasta 5 propiedades en paralelo |
+| Comparación ETF | Pie inicial independiente y aportes mensuales por diferencia dividendo−arriendo |
 | Exportación PDF | Reporte descargable con todos los indicadores |
 | Escenarios rápidos | Presets Conservador, Base y Optimista |
 | Guía de indicadores | Explicación de cada métrica inmobiliaria |
+| Diccionario metodológico | Definiciones, fórmulas, supuestos y limitaciones del modelo |
 
 ## Instalación
 

@@ -7,6 +7,7 @@ from plotly.subplots import make_subplots
 import io
 from datetime import datetime
 
+from glossary import GLOSARIO, SUPUESTOS_Y_LIMITACIONES
 from investment_engine import compute_simulation as compute_financial_simulation
 
 # ─── PAGE CONFIG ────────────────────────────────────────────────────────────
@@ -304,6 +305,7 @@ def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_r
         ["Plazo credito",    f"{params['plazo']} anos",  "Capital inicial", fmt_clp(R['cap_total'])],
         ["Plusvalia zona",   fmt_pct(plusvalia),        "Ano de venta",      str(yr_venta)],
         ["Vacancia",         fmt_pct(params['vacancia']), "ETF comparacion",  fmt_pct(etf_ret)],
+        [f"Pie ETF ({int(params['etf_pie']*100)}%)", fmt_clp(R['etf_capital_inicial']), "Aporte ETF mes 1", fmt_clp(R['etf_aporte_mensual'][1])],
         ["Crecim. arriendo", fmt_pct(params['rent_gr']), "Flujo + desde ano", str(R['yr_pos']) if R['yr_pos'] else "No alcanza"],
     ]
     col_inp = PAGE_W * 0.48
@@ -325,10 +327,11 @@ def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_r
         [Paragraph("INDICADORES CLAVE", label_s), "", ""],
         ["Ganancia Neta Total",    fmt_clp(gan),                   "Precio - Deuda - Costos + Flujos"],
         ["Multiplo del capital",   f"{roi:.2f}x" if roi else "-",  "Capital final / aportes"],
-        ["TIR",                    fmt_pct(tir) if tir else "-",   f"Bueno > 8% | Tasa credito: {fmt_pct(tasa_h)}"],
+        ["TIR",                    fmt_pct(tir) if tir else "-",   f"Referencia credito: {fmt_pct(tasa_h)}"],
         ["CAGR anual",             fmt_pct(R['cagr']),              "Rentabilidad compuesta anual"],
-        ["Cap Rate neto ano 1",    fmt_pct(R['cap_rate_neto']),     "Benchmark RM: 2%-4%"],
+        ["Cap Rate neto ano 1",    fmt_pct(R['cap_rate_neto']),     "Referencia historica: 2%-4%"],
         [f"vs ETF {fmt_pct(etf_ret)}", fmt_clp(diff),             "Diferencia a favor del depto"],
+        ["Ganancia neta ETF", fmt_clp(R['etf_yr']),               f"Saldo {fmt_clp(R['etf_saldo'][yr_venta])}"],
         [f"Valor depto ano {yr_venta}", fmt_clp(R['val_d'][yr_venta]), f"Con plusvalia {fmt_pct(plusvalia)}"],
         ["Saldo hipoteca al vender", fmt_clp(R['saldo_h'][yr_venta]), "Deuda pendiente con banco"],
     ]
@@ -496,23 +499,23 @@ with st.sidebar:
 
     st.divider()
     st.markdown('<div class="section-title">Datos del Departamento</div>', unsafe_allow_html=True)
-    uf_val   = st.number_input("Valor UF (CLP)", value=39842, step=100, format="%d")
-    dep_uf   = st.number_input("Valor depto (UF)", value=ev['dep_uf'], step=50, format="%d")
-    arr_clp  = st.number_input("Arriendo inicial (CLP/mes)", value=ev['arr_clp'], step=10_000, format="%d")
+    uf_val   = st.number_input("Valor UF (CLP)", value=39842, min_value=1, step=100, format="%d")
+    dep_uf   = st.number_input("Valor depto (UF)", value=ev['dep_uf'], min_value=1, step=50, format="%d")
+    arr_clp  = st.number_input("Arriendo inicial (CLP/mes)", value=ev['arr_clp'], min_value=0, step=10_000, format="%d")
     arr_uf   = arr_clp / uf_val
     st.markdown(f'<p style="font-size:0.72rem;color:#8a9bb0;margin-top:-0.5rem">≈ {arr_uf:.1f} UF/mes (referencial)</p>', unsafe_allow_html=True)
     rent_gr  = st.slider("Crecimiento arriendo anual", 2.0, 8.0, float(ev['rent_gr']), 0.5, format="%.1f%%") / 100
     vacancia = st.slider("Vacancia anual", 0.0, 20.0, float(ev['vac']), 1.0, format="%.0f%%") / 100
     adm      = st.slider("Comisión administradora", 0.0, 15.0, 8.0, 1.0, format="%.0f%%") / 100
-    gcom     = st.number_input("Gastos comunes (CLP/mes)", value=100_000, step=5_000, format="%d")
-    contrib  = st.number_input("Contribuciones SII (CLP/año)", value=320_000, step=10_000, format="%d")
-    seguro   = st.number_input("Seguro hipotecario (CLP/año)", value=120_000, step=5_000, format="%d")
+    gcom     = st.number_input("Gastos comunes (CLP/mes)", value=100_000, min_value=0, step=5_000, format="%d")
+    contrib  = st.number_input("Contribuciones SII (CLP/año)", value=320_000, min_value=0, step=10_000, format="%d")
+    seguro   = st.number_input("Seguro hipotecario (CLP/año)", value=120_000, min_value=0, step=5_000, format="%d")
     mant     = st.slider("Mantención anual (% valor)", 0.1, 2.0, 0.5, 0.1, format="%.1f%%") / 100
     reserva  = st.slider("Reserva contingencias (% arr.)", 0.0, 10.0, 5.0, 1.0, format="%.0f%%") / 100
 
     st.divider()
     st.markdown('<div class="section-title">Financiamiento</div>', unsafe_allow_html=True)
-    pie_pct  = st.number_input("Pie inicial (%)", value=20.0, min_value=0.0, max_value=100.0, step=1.0, format="%.1f") / 100
+    pie_pct  = st.number_input("Pie del departamento (%)", value=0.0, min_value=0.0, max_value=100.0, step=1.0, format="%.1f") / 100
     tasa_h   = st.number_input("Tasa hipotecaria anual (%)", value=float(ev['tasa']), min_value=0.0, max_value=30.0, step=0.01, format="%.2f") / 100
     plazo    = st.selectbox("Plazo crédito (años)", [15, 20, 25, 30], index=3)
     gc_pct   = st.number_input("Gastos cierre (%)", value=2.5, min_value=0.0, max_value=20.0, step=0.1, format="%.1f") / 100
@@ -537,7 +540,9 @@ with st.sidebar:
 
     st.divider()
     st.markdown('<div class="section-title">Comparación ETF</div>', unsafe_allow_html=True)
+    etf_pie  = st.number_input("Inversión inicial ETF (% valor depto)", value=20.0, min_value=0.0, max_value=100.0, step=1.0, format="%.1f") / 100
     etf_ret = st.slider("Retorno ETF neto anual", 5.0, 15.0, 10.0, 0.5, format="%.1f%%") / 100
+    st.caption("Aporte mensual ETF = máx(dividendo − arriendo bruto, 0). No incluye otros gastos del departamento.")
 
     st.divider()
     st.markdown('<div class="section-title">Año de Análisis de Venta</div>', unsafe_allow_html=True)
@@ -553,7 +558,7 @@ params = dict(
     seguro=seguro, mant=mant, reserva=reserva,
     pie=pie_pct, tasa=tasa_h, plazo=plazo,
     gastos_cierre=gc_pct, costo_venta=cv_pct,
-    plusvalia=plusvalia, etf_ret=etf_ret,
+    plusvalia=plusvalia, etf_ret=etf_ret, etf_pie=etf_pie,
     yr_venta=yr_venta, remodelaciones=remos,
 )
 R      = compute_financial_simulation(params)
@@ -597,8 +602,8 @@ with col_pdf_btn:
 
 
 # ─── TABS ────────────────────────────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📊  Dashboard", "📈  Flujos & Proyecciones", "📉  Sensibilidad", "🔁  Comparador", "📖  Guía de Indicadores"
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📊  Dashboard", "📈  Flujos & Proyecciones", "📉  Sensibilidad", "🔁  Comparador", "📖  Guía", "📚  Diccionario"
 ])
 
 
@@ -614,7 +619,7 @@ with tab1:
         (k1, "Capital inicial",      fmt_clp_short(R['cap_total']), fmt_clp(R['cap_total']),      ""),
         (k2, "Dividendo mensual",    fmt_clp_short(R['div_m']),     fmt_clp(R['div_m']),           "amber"),
         (k3, "Arriendo mes 1 (CLP)", fmt_clp_short(R['rent_m0']),   f"≈ {arr_uf:.1f} UF/mes",     ""),
-        (k4, "Cap Rate neto año 1",  fmt_pct(R['cap_rate_neto']),   "Benchmark RM: 2%–4%",        "positive" if R['cap_rate_neto'] >= 0.02 else "negative"),
+        (k4, "Cap Rate neto año 1",  fmt_pct(R['cap_rate_neto']),   "Referencia histórica: 2%–4%", "positive" if R['cap_rate_neto'] >= 0.02 else "negative"),
         (k5, "Subsidio mes 1",       fmt_clp_short(subsidio_m),     "De tu bolsillo/mes",         "negative" if subsidio_m > 0 else "positive"),
     ]
     for col, label, val, sub, cls in metrics_row1:
@@ -664,6 +669,13 @@ with tab1:
               f"TIR {fmt_pct(tir)} vs tasa crédito {tasa_h*100:.1f}%."
     st.markdown(f'<div class="verdict {verdict_cls}" style="font-size:0.88rem">{icon} {msg}</div>',
                 unsafe_allow_html=True)
+    st.info(
+        f"**Comparación ETF:** inversión inicial {fmt_clp(R['etf_capital_inicial'])} "
+        f"({etf_pie*100:.1f}% del depto) · aporte mes 1 {fmt_clp(R['etf_aporte_mensual'][1])} · "
+        f"capital total aportado {fmt_clp(R['etf_aportes'][yr_venta])} · "
+        f"saldo final {fmt_clp(R['etf_saldo'][yr_venta])} · ganancia neta {fmt_clp(R['etf_yr'])}.  \n"
+        "El aporte mensual usa solo max(dividendo − arriendo bruto, 0); no incluye los gastos operacionales del departamento."
+    )
 
     # ── CHARTS ROW ──
     c_left, c_right = st.columns(2)
@@ -780,6 +792,11 @@ with tab1:
             (f"Saldo hipoteca año {yr_venta}",  fmt_clp(R['saldo_h'][yr_venta])),
             (f"Valor depto año {yr_venta}",     fmt_clp(R['val_d'][yr_venta])),
             ("Ganancia neta total",             fmt_clp(R['gan_yr'])),
+            ("Inversión inicial ETF",           fmt_clp(R['etf_capital_inicial'])),
+            ("Aporte ETF mes 1",                fmt_clp(R['etf_aporte_mensual'][1])),
+            ("Capital total aportado ETF",      fmt_clp(R['etf_aportes'][yr_venta])),
+            ("Saldo ETF",                       fmt_clp(R['etf_saldo'][yr_venta])),
+            ("Ganancia neta ETF",               fmt_clp(R['etf_yr'])),
             ("TIR",                             fmt_pct(tir) if tir else "—"),
             ("Múltiplo del capital",            f"{roi:.2f}x" if roi else "—"),
         ]
@@ -807,7 +824,7 @@ with tab2:
         hovertemplate="Año %{x} · Depto: $%{y:.1f}M<extra></extra>"))
     fig.add_trace(go.Scatter(
         x=yrs[1:], y=[e/1e6 for e in R['etf_b'][1:]],
-        name=f"ETF {etf_ret*100:.0f}% neto", line=dict(color=AMBER, width=2.5, dash="dash"),
+        name=f"Ganancia ETF {etf_ret*100:.0f}%", line=dict(color=AMBER, width=2.5, dash="dash"),
         hovertemplate="Año %{x} · ETF: $%{y:.1f}M<extra></extra>"))
     if yr_venta > 0 and R['gan_yr']:
         fig.add_vline(x=yr_venta, line=dict(color=SKY, dash="dot", width=1.5))
@@ -989,8 +1006,8 @@ with tab4:
         with col:
             st.markdown(f'<div class="section-title">Simulación {idx}</div>', unsafe_allow_html=True)
             name      = st.text_input("Nombre", value=f"Propiedad {idx}", key=f"name_{idx}")
-            dep_uf_i  = st.number_input("Valor (UF)", value=[4200, 6500, 3800, 7000][i], key=f"uf_{idx}", step=50)
-            arr_clp_i = st.number_input("Arriendo (CLP/mes)", value=[876_000, 1_275_000, 797_000, 1_395_000][i], key=f"arr_{idx}", step=10_000, format="%d")
+            dep_uf_i  = st.number_input("Valor (UF)", value=[4200, 6500, 3800, 7000][i], key=f"uf_{idx}", min_value=1, step=50)
+            arr_clp_i = st.number_input("Arriendo (CLP/mes)", value=[876_000, 1_275_000, 797_000, 1_395_000][i], key=f"arr_{idx}", min_value=0, step=10_000, format="%d")
             arr_i     = arr_clp_i / uf_val
             plus_i    = st.number_input("Plusvalía %/año", value=[5.5, 7.5, 4.0, 5.5][i], key=f"plus_{idx}", step=0.5) / 100
             yr_v_i    = st.number_input("Año de venta", value=[10, 15, 8, 12][i], key=f"yrv_{idx}", min_value=1, max_value=30)
@@ -1022,6 +1039,9 @@ with tab4:
         ("TIR",                      [fmt_pct(r['tir']) if r['tir'] else "—" for r in results]),
         ("CAGR anual",               [fmt_pct(r['cagr']) for r in results]),
         ("Ganancia ETF equivalente", [fmt_clp(r['etf_yr']) for r in results]),
+        ("Inversión inicial ETF",    [fmt_clp(r['etf_capital_inicial']) for r in results]),
+        ("Capital total aportado ETF", [fmt_clp(r['etf_aportes'][r['yr_venta']]) for r in results]),
+        ("Saldo ETF",                [fmt_clp(r['etf_saldo'][r['yr_venta']]) for r in results]),
     ]
 
     best_gan_idx = max(range(n_sims), key=lambda i: results[i]['gan_yr'] or -1e18)
@@ -1083,13 +1103,17 @@ with tab5:
             ("📐 Plusvalía nominal/año", f"Tu zona: {plusvalia*100:.1f}%",
              "El motor principal de rentabilidad. Con crédito hipotecario, la plusvalía actúa sobre el 100% del depto pero tú solo pusiste el pie — esto se llama apalancamiento financiero y multiplica tu retorno sobre capital propio."),
             ("🏘️ Cap Rate neto", f"Tu caso: {R['cap_rate_neto']*100:.2f}%",
-             "Arriendo neto anual ÷ valor del depto. Mide si el depto 'se paga solo' operacionalmente. Benchmark RM: 2%–4% neto. Menor a 2% = vives de la plusvalía. Mayor a 4% = excelente operación."),
+             "Arriendo neto anual ÷ valor del depto. Mide el rendimiento operacional antes del crédito. El rango 2%–4% mostrado por la app es una referencia histórica ilustrativa, no una regla de decisión."),
             ("📉 Vacancia", f"Usas: {vacancia*100:.0f}%",
-             "Porcentaje del año sin arrendatario. 8% ≈ 1 mes sin ingresos. Zonas consolidadas: 5%–8%. Zonas emergentes: 10%–20%. Impacta directamente el flujo y el punto de equilibrio."),
+             "Porcentaje del arriendo anual que se descuenta por periodos sin ingresos. Debe ajustarse según evidencia de la propiedad y su mercado; impacta directamente el flujo."),
             ("📈 Crecimiento arriendo", f"Usas: {rent_gr*100:.1f}%/año",
-             "A qué ritmo suben los arriendos. Históricamente RM: 4%–6% nominal. Afecta cuándo el flujo se vuelve positivo."),
+             "Aumento nominal anual supuesto para el arriendo. Afecta cuándo el flujo se vuelve positivo y debe probarse con escenarios conservadores."),
             ("🏦 Tasa hipotecaria", f"Usas: {tasa_h*100:.2f}% anual",
              f"Define tu dividendo mensual de {fmt_clp(R['div_m'])}. A mayor tasa, mayor flujo negativo los primeros años. Negociar la tasa puede cambiar significativamente el resultado."),
+            ("📈 Inversión inicial ETF", fmt_clp(R['etf_capital_inicial']),
+             f"Es independiente del pie del departamento: {etf_pie*100:.1f}% del valor de compra. Esto permite comparar un departamento con 0% de pie contra un ETF que sí parte con capital."),
+            ("➕ Aporte mensual ETF", fmt_clp(R['etf_aporte_mensual'][1]) + " en mes 1",
+             "Se calcula mes a mes como máx(dividendo − arriendo bruto, 0). Por instrucción del modelo no incluye vacancia, mantención, contribuciones ni otros gastos."),
         ]
         for name, value, desc in guide_inputs:
             st.markdown(f"""
@@ -1104,16 +1128,16 @@ with tab5:
             ("💰 Ganancia Neta de Venta", f"Tu caso año {yr_venta}: {fmt_clp(R['gan_yr'])}",
              "LA MÉTRICA MÁS IMPORTANTE. Precio de venta − deuda banco − costos de venta + flujos acumulados. Lo que queda en tu bolsillo al vender."),
             ("📊 TIR (Tasa Interna de Retorno)", fmt_pct(tir) if tir else "—",
-             f"La rentabilidad anual equivalente de toda la inversión. Compárala con tu tasa de crédito ({tasa_h*100:.1f}%). Si TIR > tasa crédito, la inversión crea valor. Buena TIR > 8%."),
+             f"Resume todos los flujos y la venta en una tasa anual. La tasa del crédito ({tasa_h*100:.1f}%) es solo una referencia; para decidir, compara la TIR con tu rentabilidad mínima exigida y con alternativas de riesgo similar."),
             ("🔄 Múltiplo del capital (MOIC)", f"{roi:.2f}x" if roi else "—",
              "Capital final equivalente ÷ todos los aportes realizados. Un múltiplo de 2x significa que duplicaste el capital aportado. El CAGR traduce este múltiplo a una tasa anual aproximada."),
             ("📊 Flujo Neto Anual", f"Año 1: {fmt_clp(R['flujo_n'][1])}",
              "Arriendo − Gastos − Dividendo. Si es negativo, pones dinero de tu bolsillo mensualmente. " +
              (f"En tu caso se vuelve positivo en el año {R['yr_pos']}." if R['yr_pos'] else "En tu escenario el flujo no llega a positivo en 30 años.")),
             ("🏦 vs ETF", f"Diferencia año {yr_venta}: {fmt_clp(diff)}",
-             f"Compara con invertir el mismo dinero en ETF al {etf_ret*100:.0f}% neto. Comparación JUSTA: ambas alternativas cuestan lo mismo de tu bolsillo. El depto gana a largo plazo gracias al apalancamiento."),
+             f"Compara ganancias netas: el ETF parte con {etf_pie*100:.1f}% del valor del depto y recibe mensualmente la diferencia positiva entre dividendo y arriendo. Como excluye otros gastos inmobiliarios, no iguala completamente los desembolsos."),
             ("⚖️ Cuándo conviene vender", "",
-             "Matemáticamente: cuando la ganancia neta del depto supera la ganancia neta del ETF con los mismos aportes. También debes considerar liquidez, riesgo e impuestos."),
+             "En esta comparación: cuando la ganancia neta del depto supera la del ETF bajo la regla de aportes configurada. También debes considerar liquidez, riesgo e impuestos."),
         ]
         for name, value, desc in guide_outputs:
             badge = f'<span class="badge badge-green">{value}</span>' if value else ""
@@ -1123,7 +1147,7 @@ with tab5:
               <div class="guide-desc">{desc}</div>
             </div>""", unsafe_allow_html=True)
 
-    st.markdown('<div class="section-title" style="margin-top:1.5rem">Marco de decisión — semáforo de la inversión</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-title" style="margin-top:1.5rem">Heurísticas ilustrativas — no son reglas de inversión</div>', unsafe_allow_html=True)
     c_s1, c_s2, c_s3 = st.columns(3)
     with c_s1:
         st.markdown("""
@@ -1132,7 +1156,7 @@ with tab5:
           <span style="font-size:0.82rem;color:#8a9bb0">
           • Plusvalía zona ≥ 5.5%<br>
           • Cap Rate neto > 2.5%<br>
-          • TIR > tasa del crédito<br>
+          • TIR > rentabilidad mínima exigida<br>
           • Flujo positivo antes del año 12<br>
           • Depto supera ETF en año 10
           </span>
@@ -1166,11 +1190,31 @@ with tab5:
     <div class="guide-card" style="margin-top:1rem;border-left:3px solid #00c9a7">
       <div class="guide-name">💡 La clave: el depto es una apuesta a la PLUSVALÍA, no al arriendo</div>
       <div class="guide-desc">
-      El banco financia el 80% del depto, pero el 100% de la plusvalía es tuya. Con 5.5% nominal de plusvalía anual,
-      un depto de $200M sube $11M/año — pero tú solo pusiste $44M de capital propio. Eso es apalancamiento financiero
-      y explica por qué el depto puede superar al ETF a largo plazo, a pesar de los flujos negativos iniciales.
+      La plusvalía actúa sobre el valor completo del departamento aunque el capital inicial sea menor. Eso es
+      apalancamiento financiero: puede amplificar la rentabilidad, pero también los déficits y el riesgo. Un pie de 0%
+      es un supuesto matemático del simulador y no garantiza que ese financiamiento exista en la práctica.
       </div>
     </div>""", unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# TAB 6: DICCIONARIO Y METODOLOGÍA
+# ════════════════════════════════════════════════════════════════════════
+with tab6:
+    st.markdown('<div class="section-title">Supuestos y limitaciones del modelo</div>', unsafe_allow_html=True)
+    st.warning("La regla solicitada para el ETF no iguala toda la caja invertida: excluye gastos operacionales del departamento. Para una comparación rigurosa se deberían igualar todos los desembolsos, impuestos y fechas y comparar las TIR después de impuestos.")
+    for supuesto in SUPUESTOS_Y_LIMITACIONES:
+        st.markdown(f"- {supuesto}")
+
+    st.markdown('<div class="section-title">Diccionario de conceptos y fórmulas</div>', unsafe_allow_html=True)
+    categorias = ["Todas"] + sorted({item["categoria"] for item in GLOSARIO.values()})
+    categoria_elegida = st.selectbox("Filtrar por categoría", categorias)
+    for termino, contenido in GLOSARIO.items():
+        if categoria_elegida != "Todas" and contenido["categoria"] != categoria_elegida:
+            continue
+        with st.expander(f"{termino}  ·  {contenido['categoria']}"):
+            st.write(contenido["definicion"])
+            st.markdown(f"**Cálculo en el simulador:** {contenido['formula']}")
 
 
 # ─── FOOTER ──────────────────────────────────────────────────────────────────

@@ -59,6 +59,7 @@ def calcular_plan_hipotecario(capital, tasa_anual, plazo_anios, horizonte=HORIZO
     pagos_anuales = [0.0]
     intereses_anuales = [0.0]
     amortizaciones_anuales = [0.0]
+    pagos_mensuales = []
     saldo = float(capital)
     meses_pagados = 0
 
@@ -66,15 +67,17 @@ def calcular_plan_hipotecario(capital, tasa_anual, plazo_anios, horizonte=HORIZO
         pago_anual = interes_anual = amortizacion_anual = 0.0
         for _mes in range(12):
             if meses_pagados >= total_meses or saldo <= 1e-7:
-                break
-            interes = saldo * tasa_mensual
-            amortizacion = min(cuota_mensual - interes, saldo)
-            pago = interes + amortizacion
-            saldo = max(0.0, saldo - amortizacion)
+                pago = interes = amortizacion = 0.0
+            else:
+                interes = saldo * tasa_mensual
+                amortizacion = min(cuota_mensual - interes, saldo)
+                pago = interes + amortizacion
+                saldo = max(0.0, saldo - amortizacion)
+                meses_pagados += 1
+            pagos_mensuales.append(pago)
             pago_anual += pago
             interes_anual += interes
             amortizacion_anual += amortizacion
-            meses_pagados += 1
 
         saldos.append(saldo)
         pagos_anuales.append(pago_anual)
@@ -85,6 +88,7 @@ def calcular_plan_hipotecario(capital, tasa_anual, plazo_anios, horizonte=HORIZO
         "cuota_mensual": cuota_mensual,
         "saldos": saldos,
         "pagos_anuales": pagos_anuales,
+        "pagos_mensuales": pagos_mensuales,
         "intereses_anuales": intereses_anuales,
         "amortizaciones_anuales": amortizaciones_anuales,
     }
@@ -94,6 +98,15 @@ def compute_simulation(p):
     """Calcula los flujos inmobiliarios y un ETF con aportes equivalentes."""
     uf = p["uf"]
     val_uf = p["val_uf"]
+    if uf <= 0 or val_uf <= 0:
+        raise ValueError("La UF y el valor del departamento deben ser positivos")
+    if p["arriendo_uf"] < 0:
+        raise ValueError("El arriendo no puede ser negativo")
+    if not 0 <= p["pie"] <= 1 or not 0 <= p.get("etf_pie", p["pie"]) <= 1:
+        raise ValueError("Los porcentajes de pie deben estar entre 0% y 100%")
+    if not 1 <= p["yr_venta"] <= HORIZONTE_ANIOS:
+        raise ValueError(f"El año de venta debe estar entre 1 y {HORIZONTE_ANIOS}")
+
     val_clp = uf * val_uf
     pie_clp = val_clp * p["pie"]
     cierre = val_clp * p["gastos_cierre"]
@@ -104,6 +117,7 @@ def compute_simulation(p):
     div_m = plan["cuota_mensual"]
     saldo_h = plan["saldos"]
     pagos_hipoteca = plan["pagos_anuales"]
+    pagos_mensuales = plan["pagos_mensuales"]
     interes_anual = plan["intereses_anuales"]
     amort_anual = plan["amortizaciones_anuales"]
     rent_m0 = uf * p["arriendo_uf"]
@@ -112,10 +126,13 @@ def compute_simulation(p):
     val_d, arr_b, gastos = [], [], []
     flujo_n, flujo_a, gan_v = [], [], []
     etf_b, etf_saldo_hist, etf_aportes_hist = [], [], []
+    etf_aporte_mensual_hist, etf_aportes_anuales = [], []
 
     flujo_acum = -cap_total
-    etf_saldo = cap_total
-    etf_aportes = cap_total
+    etf_capital_inicial = val_clp * p.get("etf_pie", p["pie"])
+    etf_saldo = etf_capital_inicial
+    etf_aportes = etf_capital_inicial
+    tasa_etf_mensual = (1 + p["etf_ret"]) ** (1 / 12) - 1
 
     for yr in years:
         vd = val_clp * (1 + p["plusvalia"]) ** yr
@@ -130,6 +147,8 @@ def compute_simulation(p):
             etf_b.append(0.0)
             etf_saldo_hist.append(etf_saldo)
             etf_aportes_hist.append(etf_aportes)
+            etf_aporte_mensual_hist.append(0.0)
+            etf_aportes_anuales.append(0.0)
             continue
 
         rent_anual = rent_m0 * 12 * (1 + p["rent_gr"]) ** (yr - 1)
@@ -141,7 +160,8 @@ def compute_simulation(p):
         gcom_anual = p["gcom"] * 12
         cont_anual = p["contrib"]
         seg_anual = p["seguro"]
-        mant_anual = vd * p["mant"]
+        valor_inicio_anio = val_clp * (1 + p["plusvalia"]) ** (yr - 1)
+        mant_anual = valor_inicio_anio * p["mant"]
         remo = uf * p["remodelaciones"].get(yr, 0)
         gasto = vac_loss + adm_loss + res_loss + gcom_anual + cont_anual + seg_anual + mant_anual + remo
         gastos.append(gasto)
@@ -154,15 +174,25 @@ def compute_simulation(p):
         costo_vta = vd * p["costo_venta"]
         gan_v.append(vd - saldo_h[yr] - costo_vta + flujo_acum)
 
-        # El ETF recibe el mismo capital inicial y los mismos aportes adicionales
-        # que exige un flujo inmobiliario negativo. Se compara ganancia con
-        # ganancia, descontando del saldo todos los aportes nominales.
-        aporte_anual = max(0.0, -flujo)
-        etf_saldo = etf_saldo * (1 + p["etf_ret"]) + aporte_anual
-        etf_aportes += aporte_anual
+        # Regla solicitada para el benchmark: el ETF parte con un pie hipotético
+        # independiente del pie del departamento. Cada mes recibe solamente la
+        # diferencia positiva entre dividendo y arriendo bruto. Los gastos del
+        # inmueble no forman parte de este aporte y se informan como limitación.
+        aporte_anual_etf = 0.0
+        aporte_representativo = 0.0
+        for mes_del_anio in range(12):
+            indice_mes = (yr - 1) * 12 + mes_del_anio
+            aporte_mes = max(0.0, pagos_mensuales[indice_mes] - rent_anual / 12)
+            etf_saldo = etf_saldo * (1 + tasa_etf_mensual) + aporte_mes
+            etf_aportes += aporte_mes
+            aporte_anual_etf += aporte_mes
+            if mes_del_anio == 0:
+                aporte_representativo = aporte_mes
         etf_saldo_hist.append(etf_saldo)
         etf_aportes_hist.append(etf_aportes)
         etf_b.append(etf_saldo - etf_aportes)
+        etf_aporte_mensual_hist.append(aporte_representativo)
+        etf_aportes_anuales.append(aporte_anual_etf)
 
     cap_rate_neto = (
         rent_m0 * 12 * (1 - p["vacancia"] - p["adm"] - p["reserva"])
@@ -198,6 +228,9 @@ def compute_simulation(p):
         "etf_b": etf_b,
         "etf_saldo": etf_saldo_hist,
         "etf_aportes": etf_aportes_hist,
+        "etf_capital_inicial": etf_capital_inicial,
+        "etf_aporte_mensual": etf_aporte_mensual_hist,
+        "etf_aportes_anuales": etf_aportes_anuales,
         "interes_anual": interes_anual,
         "amort_anual": amort_anual,
         "pagos_hipoteca": pagos_hipoteca,
