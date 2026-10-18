@@ -15,7 +15,7 @@ Herramienta interactiva para evaluar y comparar inversiones en departamentos de 
 
 | Módulo | Descripción |
 |---|---|
-| Dashboard KPIs | TIR, ROI, CAGR, Cap Rate y Ganancia Neta en tiempo real |
+| Dashboard KPIs | TIR, múltiplo del capital, CAGR, Cap Rate y ganancia neta en tiempo real |
 | Proyección de flujos | Gráfico de amortización a 30 años |
 | Análisis de sensibilidad | Impacto de plusvalía y tasa hipotecaria |
 | Comparador de propiedades | Evalúa hasta 5 propiedades en paralelo |

@@ -7,6 +7,8 @@ from plotly.subplots import make_subplots
 import io
 from datetime import datetime
 
+from investment_engine import compute_simulation as compute_financial_simulation
+
 # ─── PAGE CONFIG ────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Simulador Inversión Inmobiliaria",
@@ -228,135 +230,7 @@ def base_layout(title="", height=360):
 
 
 # ─── TIR ─────────────────────────────────────────────────────────────────────
-def calcular_tir(flujos, max_iter=1000, tol=1e-6):
-    if len(flujos) < 2: return None
-    tasa = 0.1
-    for _ in range(max_iter):
-        vpn  = sum(f / (1+tasa)**i for i, f in enumerate(flujos))
-        dvpn = sum(-i*f / (1+tasa)**(i+1) for i, f in enumerate(flujos))
-        if abs(dvpn) < 1e-10: break
-        nueva = tasa - vpn / dvpn
-        if abs(nueva - tasa) < tol:
-            return nueva if -0.5 < nueva < 5 else None
-        tasa = nueva
-    return None
-
-
 # ─── MOTOR DE CÁLCULO ────────────────────────────────────────────────────────
-def compute_simulation(p):
-    uf       = p['uf']
-    val_uf   = p['val_uf']
-    val_clp  = uf * val_uf
-    pie_clp  = val_clp * p['pie']
-    cierre   = val_clp * p['gastos_cierre']
-    cap_total = pie_clp + cierre
-    hipot    = val_clp * (1 - p['pie'])
-    tasa_m   = p['tasa'] / 12
-    meses    = p['plazo'] * 12
-
-    if tasa_m > 0:
-        div_m = hipot * tasa_m / (1 - (1 + tasa_m) ** (-meses))
-    else:
-        div_m = hipot / meses
-
-    rent_m0 = uf * p['arriendo_uf']
-
-    years   = list(range(31))
-    val_d, arr_b, gastos   = [], [], []
-    flujo_n, flujo_a       = [], []
-    saldo_h, gan_v, etf_b  = [], [], []
-    interes_anual, amort_anual = [], []
-
-    deficit_acum = -cap_total
-    etf_saldo    = cap_total
-
-    for yr in years:
-        vd = val_clp * (1 + p['plusvalia']) ** yr
-        val_d.append(vd)
-
-        if yr == 0:
-            arr_b.append(0); gastos.append(0)
-            flujo_n.append(-cap_total); flujo_a.append(-cap_total)
-            saldo_h.append(hipot); gan_v.append(None); etf_b.append(cap_total)
-            interes_anual.append(0); amort_anual.append(0)
-            continue
-
-        rent_anual   = rent_m0 * 12 * (1 + p['rent_gr']) ** (yr - 1)
-        arr_b.append(rent_anual)
-
-        # Gastos — gcom, contrib, seguro ya vienen en CLP
-        vac_loss   = rent_anual * p['vacancia']
-        adm_loss   = rent_anual * p['adm']
-        res_loss   = rent_anual * p['reserva']
-        gcom_anual = p['gcom'] * 12
-        cont_anual = p['contrib']
-        seg_anual  = p['seguro']
-        mant_anual = vd * p['mant']
-        remo       = uf * p['remodelaciones'].get(yr, 0)
-
-        gast = vac_loss + adm_loss + res_loss + gcom_anual + cont_anual + seg_anual + mant_anual + remo
-        gastos.append(gast)
-
-        fn = rent_anual - gast - div_m * 12
-        flujo_n.append(fn)
-        deficit_acum += fn
-        flujo_a.append(deficit_acum)
-
-        # Amortización e interés
-        sh_prev    = saldo_h[-1]
-        interes_yr = sh_prev * tasa_m * 12 if tasa_m > 0 else 0
-        amort_yr   = div_m * 12 - interes_yr
-        interes_anual.append(max(0, interes_yr))
-        amort_anual.append(max(0, amort_yr))
-
-        if tasa_m > 0:
-            sh = hipot * (1 + tasa_m) ** (yr * 12) - div_m * ((1 + tasa_m) ** (yr * 12) - 1) / tasa_m
-        else:
-            sh = max(0, hipot - div_m * yr * 12)
-        saldo_h.append(max(0, sh))
-
-        costo_vta = vd * p['costo_venta']
-        gan_v.append(vd - max(0, sh) - costo_vta + deficit_acum)
-
-        subsidio_mes = max(0, div_m - (rent_anual / 12) * (1 - p['vacancia'] - p['adm'] - p['reserva']) +
-                          (gcom_anual + cont_anual + seg_anual) / 12 + mant_anual / 12)
-        etf_saldo = etf_saldo * (1 + p['etf_ret']) + subsidio_mes * 12
-        etf_b.append(etf_saldo)
-
-    cap_rate_neto = (rent_m0 * 12 * (1 - p['vacancia'] - p['adm'] - p['reserva']) -
-                     (p['gcom'] * 12 + p['contrib'] + p['seguro']) -
-                     val_clp * p['mant']) / val_clp
-
-    yr_venta = p['yr_venta']
-    gan_yr   = gan_v[yr_venta] if yr_venta > 0 else None
-    roi      = (gan_yr / cap_total) if (gan_yr and cap_total > 0) else None
-    cagr     = ((gan_yr / cap_total) ** (1 / yr_venta) - 1) if (gan_yr and gan_yr > 0 and yr_venta > 0) else None
-    etf_yr   = etf_b[yr_venta]
-    yr_pos   = next((i for i in range(1, 31) if flujo_n[i] > 0), None)
-
-    # TIR
-    flujos_tir = [-cap_total]
-    for i in range(1, yr_venta + 1):
-        f = flujo_n[i]
-        if i == yr_venta:
-            liq = val_d[i] - saldo_h[i] - val_d[i] * p['costo_venta']
-            f   = flujo_n[i] + liq
-        flujos_tir.append(f)
-    tir = calcular_tir(flujos_tir)
-
-    return {
-        'years': years, 'val_d': val_d, 'arr_b': arr_b, 'gastos': gastos,
-        'flujo_n': flujo_n, 'flujo_a': flujo_a,
-        'saldo_h': saldo_h, 'gan_v': gan_v, 'etf_b': etf_b,
-        'interes_anual': interes_anual, 'amort_anual': amort_anual,
-        'cap_total': cap_total, 'val_clp': val_clp,
-        'pie_clp': pie_clp, 'hipot': hipot, 'div_m': div_m,
-        'rent_m0': rent_m0, 'cap_rate_neto': cap_rate_neto,
-        'gan_yr': gan_yr, 'roi': roi, 'cagr': cagr, 'tir': tir,
-        'etf_yr': etf_yr, 'yr_pos': yr_pos, 'yr_venta': yr_venta,
-    }
-
-
 # ─── GENERADOR PDF ───────────────────────────────────────────────────────────
 def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_ret):
     from reportlab.lib.pagesizes import A4, landscape
@@ -427,7 +301,7 @@ def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_r
         ["Valor depto",      fmt_clp(R['val_clp']),    "Arriendo inicial",  fmt_clp(arr_clp)+"/mes"],
         [f"Pie ({int(params['pie']*100)}%)", fmt_clp(R['pie_clp']), "Hipotecario", fmt_clp(R['hipot'])],
         ["Tasa hipotecaria", fmt_pct(tasa_h),          "Dividendo mensual", fmt_clp(R['div_m'])],
-        ["Plazo credito",    f"{params['plazo']} anos",  "Capital invertido", fmt_clp(R['cap_total'])],
+        ["Plazo credito",    f"{params['plazo']} anos",  "Capital inicial", fmt_clp(R['cap_total'])],
         ["Plusvalia zona",   fmt_pct(plusvalia),        "Ano de venta",      str(yr_venta)],
         ["Vacancia",         fmt_pct(params['vacancia']), "ETF comparacion",  fmt_pct(etf_ret)],
         ["Crecim. arriendo", fmt_pct(params['rent_gr']), "Flujo + desde ano", str(R['yr_pos']) if R['yr_pos'] else "No alcanza"],
@@ -450,7 +324,7 @@ def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_r
     kpi_data = [
         [Paragraph("INDICADORES CLAVE", label_s), "", ""],
         ["Ganancia Neta Total",    fmt_clp(gan),                   "Precio - Deuda - Costos + Flujos"],
-        ["ROI sobre capital",      f"{roi:.2f}x" if roi else "-",  "Bueno > 2x a 10 anos"],
+        ["Multiplo del capital",   f"{roi:.2f}x" if roi else "-",  "Capital final / aportes"],
         ["TIR",                    fmt_pct(tir) if tir else "-",   f"Bueno > 8% | Tasa credito: {fmt_pct(tasa_h)}"],
         ["CAGR anual",             fmt_pct(R['cagr']),              "Rentabilidad compuesta anual"],
         ["Cap Rate neto ano 1",    fmt_pct(R['cap_rate_neto']),     "Benchmark RM: 2%-4%"],
@@ -504,7 +378,7 @@ def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_r
     key_yrs = [y for y in key_yrs if y <= 30]
 
     # Encabezados con saltos de linea para que quepan
-    fl_hdr = ["Ano", "Valor\nDepto", "Arr.\nBruto", "Gastos\nOp.", "Flujo\nNeto", "Flujo\nAcum.", "Gan.Neta\nVenta", "Saldo\nHipoteca", "ETF\nBase", "Quien\ngana"]
+    fl_hdr = ["Ano", "Valor\nDepto", "Arr.\nBruto", "Gastos\nOp.", "Flujo\nNeto", "Flujo\nAcum.", "Gan.Neta\nVenta", "Saldo\nHipoteca", "Ganancia\nETF", "Quien\ngana"]
     fl = [fl_hdr]
     for y in key_yrs:
         g  = R['gan_v'][y] if y > 0 else None
@@ -548,10 +422,10 @@ def generar_pdf(R, params, zona_key, arr_clp, tasa_h, plusvalia, yr_venta, etf_r
     pvs = [plusvalia-0.02, plusvalia-0.01, plusvalia, plusvalia+0.01, plusvalia+0.02]
     pvs = [p for p in pvs if 0 < p <= 0.15]
 
-    sens_hdr = ["Plusvalia/ano", "Valor depto", "Ganancia Neta", "ROI", "TIR", "vs ETF", "Resultado"]
+    sens_hdr = ["Plusvalia/ano", "Valor depto", "Ganancia Neta", "Multiplo", "TIR", "vs ETF", "Resultado"]
     sens = [sens_hdr]
     for pv in pvs:
-        r2  = compute_simulation(dict(params, plusvalia=pv))
+        r2  = compute_financial_simulation(dict(params, plusvalia=pv))
         g2  = r2['gan_yr']; d2 = (g2 or 0) - r2['etf_yr']
         ib  = abs(pv - plusvalia) < 0.001
         res = ("Buena" if (g2 and d2>0 and r2['roi'] and r2['roi']>=1.5)
@@ -682,7 +556,7 @@ params = dict(
     plusvalia=plusvalia, etf_ret=etf_ret,
     yr_venta=yr_venta, remodelaciones=remos,
 )
-R      = compute_simulation(params)
+R      = compute_financial_simulation(params)
 yrs    = R['years']
 gan    = R['gan_yr']
 etf    = R['etf_yr']
@@ -735,10 +609,9 @@ with tab1:
 
     # ── KPI Row 1 ──
     k1, k2, k3, k4, k5 = st.columns(5)
-    subsidio_m = max(0, R['div_m'] - R['rent_m0']*(1-vacancia-adm-reserva) +
-                     ((gcom+(contrib+seguro)/12) + R['val_clp']*mant/12))
+    subsidio_m = max(0, -R['flujo_n'][1] / 12)
     metrics_row1 = [
-        (k1, "Capital invertido",    fmt_clp_short(R['cap_total']), fmt_clp(R['cap_total']),      ""),
+        (k1, "Capital inicial",      fmt_clp_short(R['cap_total']), fmt_clp(R['cap_total']),      ""),
         (k2, "Dividendo mensual",    fmt_clp_short(R['div_m']),     fmt_clp(R['div_m']),           "amber"),
         (k3, "Arriendo mes 1 (CLP)", fmt_clp_short(R['rent_m0']),   f"≈ {arr_uf:.1f} UF/mes",     ""),
         (k4, "Cap Rate neto año 1",  fmt_pct(R['cap_rate_neto']),   "Benchmark RM: 2%–4%",        "positive" if R['cap_rate_neto'] >= 0.02 else "negative"),
@@ -760,9 +633,9 @@ with tab1:
     metrics_row2 = [
         (k6,  "Valor depto año " + str(yr_venta), fmt_clp_short(R['val_d'][yr_venta]), f"Plusvalía {plusvalia*100:.1f}%/año", "positive"),
         (k7,  "Ganancia neta al vender",          fmt_clp_short(gan),                  "Precio − Deuda − Costos + Flujos",    "positive" if (gan and gan > 0) else "negative"),
-        (k8,  "ROI sobre capital propio",          f"{roi:.2f}x" if roi else "—",       fmt_clp(R['cap_total']) + " inv.",     "positive" if (roi and roi >= 1) else "negative"),
+        (k8,  "Múltiplo del capital",              f"{roi:.2f}x" if roi else "—",       fmt_clp(R['capital_aportado']) + " aportado", "positive" if (roi and roi >= 1) else "negative"),
         (k9,  "TIR",                               fmt_pct(tir) if tir else "—",        f"Tasa crédito: {tasa_h*100:.1f}%",   "positive" if (tir and tir > tasa_h) else "negative"),
-        (k10, "vs ETF " + fmt_pct(etf_ret) + "/año", fmt_clp_short(diff),              "Depto − ETF mismo capital",           "positive" if diff >= 0 else "negative"),
+        (k10, "vs ETF " + fmt_pct(etf_ret) + "/año", fmt_clp_short(diff),              "Diferencia entre ganancias netas",     "positive" if diff >= 0 else "negative"),
     ]
     for col, label, val, sub, cls in metrics_row2:
         with col:
@@ -779,12 +652,12 @@ with tab1:
     if gan and diff > 0 and roi and roi >= 1.5:
         verdict_cls = "verdict-win"; icon = "✅"
         msg = f"<b>Buena inversión</b> — El depto supera al ETF por <b>{fmt_clp(diff)}</b> al año {yr_venta}. " \
-              f"ROI <b>{roi:.2f}x</b> · TIR <b>{fmt_pct(tir)}</b> · CAGR <b>{fmt_pct(cagr)}</b>. " \
+              f"Múltiplo <b>{roi:.2f}x</b> · TIR <b>{fmt_pct(tir)}</b> · CAGR <b>{fmt_pct(cagr)}</b>. " \
               f"{'Flujo positivo en año ' + str(yr_pos) + '.' if yr_pos else 'Flujo negativo — apuesta a la plusvalía.'}"
     elif gan and diff >= 0:
         verdict_cls = "verdict-warn"; icon = "⚠️"
         msg = f"<b>Inversión aceptable</b> — Depto supera levemente al ETF ({fmt_clp(diff)}). " \
-              f"ROI {roi:.2f}x · TIR {fmt_pct(tir)}."
+              f"Múltiplo {roi:.2f}x · TIR {fmt_pct(tir)}."
     else:
         verdict_cls = "verdict-lose"; icon = "❌"
         msg = f"<b>El ETF gana en este escenario</b> — El ETF daría <b>{fmt_clp(-diff)}</b> más al año {yr_venta}. " \
@@ -875,7 +748,7 @@ with tab1:
     with c_pie:
         pie_clp_v = R['pie_clp']
         cier_clp  = R['val_clp'] * gc_pct
-        div_tot   = R['div_m'] * 12 * yr_venta
+        div_tot   = sum(R['pagos_hipoteca'][1:yr_venta + 1])
         total_out = pie_clp_v + cier_clp + div_tot
         fig4 = go.Figure(go.Pie(
             labels=["Pie inicial", "Gastos cierre", f"Dividendos {yr_venta} años"],
@@ -896,18 +769,19 @@ with tab1:
             ("Valor depto",                    fmt_clp(R['val_clp'])),
             (f"Pie inicial ({int(pie_pct*100)}%)", fmt_clp(R['pie_clp'])),
             ("Gastos cierre",                  fmt_clp(R['val_clp'] * gc_pct)),
-            ("Capital total invertido",         fmt_clp(R['cap_total'])),
+            ("Capital inicial",                 fmt_clp(R['cap_total'])),
+            ("Capital aportado al vender",      fmt_clp(R['capital_aportado'])),
             ("Monto hipotecario",               fmt_clp(R['hipot'])),
             ("Tasa mensual",                   fmt_pct(tasa_h / 12)),
             ("Dividendo mensual",               fmt_clp(R['div_m'])),
-            ("Dividendo anual",                 fmt_clp(R['div_m'] * 12)),
+            ("Dividendos año 1",                fmt_clp(R['pagos_hipoteca'][1])),
             ("Arriendo bruto mes 1",            fmt_clp(R['rent_m0'])),
             ("Flujo neto año 1",                fmt_clp(R['flujo_n'][1])),
             (f"Saldo hipoteca año {yr_venta}",  fmt_clp(R['saldo_h'][yr_venta])),
             (f"Valor depto año {yr_venta}",     fmt_clp(R['val_d'][yr_venta])),
             ("Ganancia neta total",             fmt_clp(R['gan_yr'])),
             ("TIR",                             fmt_pct(tir) if tir else "—"),
-            ("ROI",                             f"{roi:.2f}x" if roi else "—"),
+            ("Múltiplo del capital",            f"{roi:.2f}x" if roi else "—"),
         ]
         rows_html = "".join(
             f'<tr><td style="color:#8a9bb0;font-size:0.8rem;padding:0.35rem 0">{k}</td>'
@@ -1016,7 +890,7 @@ with tab2:
             "Flujo Acum.": fmt_clp(R['flujo_a'][y]),
             "Saldo Hipoteca": fmt_clp(R['saldo_h'][y]),
             "Gan. Neta Venta": fmt_clp(g) if y > 0 else "—",
-            "ETF Base": fmt_clp(etf_s) if etf_s else "—",
+            "Ganancia ETF": fmt_clp(etf_s) if etf_s else "—",
             "¿Quién gana?": winner,
         })
     header_html = "<tr>" + "".join(f"<th>{k}</th>" for k in rows[0].keys()) + "</tr>"
@@ -1048,19 +922,19 @@ with tab3:
 
     sg, sr, st_tir, sl = [], [], [], []
     for pv in pvs:
-        r2 = compute_simulation(dict(params, plusvalia=pv))
+        r2 = compute_financial_simulation(dict(params, plusvalia=pv))
         sl.append(fmt_pct(pv) + (" ◄" if abs(pv - plusvalia) < 0.001 else ""))
         sg.append((r2['gan_yr'] or 0) / 1e6)
         sr.append(r2['roi'] or 0)
         st_tir.append((r2['tir'] or 0) * 100)
 
-    fig_s = make_subplots(rows=1, cols=2, subplot_titles=["Ganancia Neta (M CLP)", "ROI y TIR (%)"])
+    fig_s = make_subplots(rows=1, cols=2, subplot_titles=["Ganancia Neta (M CLP)", "Múltiplo y TIR"])
     bc = [TEAL if abs(pvs[i]-plusvalia) < 0.001 else "rgba(0,201,167,0.4)" for i in range(len(pvs))]
     fig_s.add_trace(go.Bar(x=sl, y=sg, marker_color=bc,
         text=[f"${v:.1f}M" for v in sg], textposition="outside",
         textfont=dict(size=9), name="Ganancia"), row=1, col=1)
     fig_s.add_trace(go.Scatter(x=sl, y=sr, mode="lines+markers",
-        line=dict(color=AMBER, width=2), name="ROI (x)", marker=dict(size=8)), row=1, col=2)
+        line=dict(color=AMBER, width=2), name="Múltiplo (x)", marker=dict(size=8)), row=1, col=2)
     fig_s.add_trace(go.Scatter(x=sl, y=st_tir, mode="lines+markers",
         line=dict(color=SKY, width=2), name="TIR (%)", marker=dict(size=8)), row=1, col=2)
     fig_s.update_layout(paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
@@ -1071,10 +945,10 @@ with tab3:
     fig_s.update_yaxes(gridcolor=GRID_COLOR, zeroline=False)
     st.plotly_chart(fig_s, use_container_width=True)
 
-    hdr_s = "<tr><th>Plusvalía/año</th><th>Valor depto</th><th>Ganancia Neta</th><th>ROI</th><th>TIR</th><th>vs ETF</th><th>Resultado</th></tr>"
+    hdr_s = "<tr><th>Plusvalía/año</th><th>Valor depto</th><th>Ganancia Neta</th><th>Múltiplo</th><th>TIR</th><th>vs ETF</th><th>Resultado</th></tr>"
     rows_s = ""
     for pv in pvs:
-        r2 = compute_simulation(dict(params, plusvalia=pv))
+        r2 = compute_financial_simulation(dict(params, plusvalia=pv))
         g2 = r2['gan_yr']; d2 = (g2 or 0) - r2['etf_yr']
         ib = abs(pv - plusvalia) < 0.001
         res = "✅ Buena" if (g2 and d2>0 and r2['roi'] and r2['roi']>=1.5) else ("⚠️ Revisar" if (g2 and d2>=0) else "❌ ETF gana")
@@ -1086,13 +960,12 @@ with tab3:
     # ── Sensibilidad tasa ──
     st.markdown('<div class="section-title" style="margin-top:1.5rem">Sensibilidad a la Tasa Hipotecaria</div>', unsafe_allow_html=True)
     tasas = [max(0.02, tasa_h - 0.01), max(0.02, tasa_h - 0.005), tasa_h, tasa_h + 0.005, tasa_h + 0.01]
-    hdr_t = "<tr><th>Tasa anual</th><th>Dividendo mensual</th><th>Ganancia Neta</th><th>ROI</th><th>TIR</th><th>Subsidio mes 1</th></tr>"
+    hdr_t = "<tr><th>Tasa anual</th><th>Dividendo mensual</th><th>Ganancia Neta</th><th>Múltiplo</th><th>TIR</th><th>Subsidio mes 1</th></tr>"
     rows_t = ""
     for ta in tasas:
-        r2 = compute_simulation(dict(params, tasa=ta))
+        r2 = compute_financial_simulation(dict(params, tasa=ta))
         ib = abs(ta - tasa_h) < 0.0001
-        sub2 = max(0, r2['div_m'] - r2['rent_m0']*(1-vacancia-adm-reserva) +
-                   ((gcom+(contrib+seguro)/12) + r2['val_clp']*mant/12))
+        sub2 = max(0, -r2['flujo_n'][1] / 12)
         bg = 'background:rgba(0,201,167,0.08)' if ib else ''
         roi2 = r2['roi']; tir2 = r2['tir']
         rows_t += f'<tr style="{bg}"><td><b>{"★ " if ib else ""}{fmt_pct(ta)}</b></td><td>{fmt_clp(r2["div_m"])}</td><td>{fmt_clp(r2["gan_yr"])}</td><td>{f"{roi2:.2f}x" if roi2 else "—"}</td><td>{fmt_pct(tir2) if tir2 else "—"}</td><td>{fmt_clp(sub2)}/mes</td></tr>'
@@ -1128,14 +1001,15 @@ with tab4:
                        yr_venta=yr_v_i, tasa=tasa_i)
             sim_params.append(p_i)
 
-    results = [compute_simulation(p) for p in sim_params[:n_sims]]
+    results = [compute_financial_simulation(p) for p in sim_params[:n_sims]]
     names   = sim_names[:n_sims]
 
     st.markdown('<div class="section-title" style="margin-top:2rem">Cuadro comparativo</div>', unsafe_allow_html=True)
 
     metrics_comp = [
         ("Valor depto",              [fmt_clp(r['val_clp']) for r in results]),
-        ("Capital invertido",        [fmt_clp(r['cap_total']) for r in results]),
+        ("Capital inicial",          [fmt_clp(r['cap_total']) for r in results]),
+        ("Capital total aportado",   [fmt_clp(r['capital_aportado']) for r in results]),
         ("Dividendo mensual",        [fmt_clp(r['div_m']) for r in results]),
         ("Arriendo mes 1",           [fmt_clp(r['rent_m0']) for r in results]),
         ("Cap Rate neto año 1",      [fmt_pct(r['cap_rate_neto']) for r in results]),
@@ -1144,10 +1018,10 @@ with tab4:
         ("Valor depto al vender",    [fmt_clp(r['val_d'][r['yr_venta']]) for r in results]),
         ("Saldo hipoteca al vender", [fmt_clp(r['saldo_h'][r['yr_venta']]) for r in results]),
         ("Ganancia Neta Total",      [fmt_clp(r['gan_yr']) for r in results]),
-        ("ROI sobre capital",        [f"{r['roi']:.2f}x" if r['roi'] else "—" for r in results]),
+        ("Múltiplo del capital",    [f"{r['roi']:.2f}x" if r['roi'] else "—" for r in results]),
         ("TIR",                      [fmt_pct(r['tir']) if r['tir'] else "—" for r in results]),
         ("CAGR anual",               [fmt_pct(r['cagr']) for r in results]),
-        ("ETF equivalente",          [fmt_clp(r['etf_yr']) for r in results]),
+        ("Ganancia ETF equivalente", [fmt_clp(r['etf_yr']) for r in results]),
     ]
 
     best_gan_idx = max(range(n_sims), key=lambda i: results[i]['gan_yr'] or -1e18)
@@ -1158,7 +1032,7 @@ with tab4:
     rows_html = ""
     for label, vals in metrics_comp:
         is_gan = label == "Ganancia Neta Total"
-        is_roi = label == "ROI sobre capital"
+        is_roi = label == "Múltiplo del capital"
         tds = ""
         for i, v in enumerate(vals):
             is_winner = (is_gan and i == best_gan_idx) or (is_roi and i == best_roi_idx)
@@ -1231,15 +1105,15 @@ with tab5:
              "LA MÉTRICA MÁS IMPORTANTE. Precio de venta − deuda banco − costos de venta + flujos acumulados. Lo que queda en tu bolsillo al vender."),
             ("📊 TIR (Tasa Interna de Retorno)", fmt_pct(tir) if tir else "—",
              f"La rentabilidad anual equivalente de toda la inversión. Compárala con tu tasa de crédito ({tasa_h*100:.1f}%). Si TIR > tasa crédito, la inversión crea valor. Buena TIR > 8%."),
-            ("🔄 ROI (Return on Investment)", f"{roi:.2f}x" if roi else "—",
-             "Ganancia neta ÷ capital propio invertido. ROI de 2x = duplicaste tu inversión. El apalancamiento hace que el ROI sea mucho mayor que la plusvalía del depto."),
+            ("🔄 Múltiplo del capital (MOIC)", f"{roi:.2f}x" if roi else "—",
+             "Capital final equivalente ÷ todos los aportes realizados. Un múltiplo de 2x significa que duplicaste el capital aportado. El CAGR traduce este múltiplo a una tasa anual aproximada."),
             ("📊 Flujo Neto Anual", f"Año 1: {fmt_clp(R['flujo_n'][1])}",
              "Arriendo − Gastos − Dividendo. Si es negativo, pones dinero de tu bolsillo mensualmente. " +
              (f"En tu caso se vuelve positivo en el año {R['yr_pos']}." if R['yr_pos'] else "En tu escenario el flujo no llega a positivo en 30 años.")),
             ("🏦 vs ETF", f"Diferencia año {yr_venta}: {fmt_clp(diff)}",
              f"Compara con invertir el mismo dinero en ETF al {etf_ret*100:.0f}% neto. Comparación JUSTA: ambas alternativas cuestan lo mismo de tu bolsillo. El depto gana a largo plazo gracias al apalancamiento."),
             ("⚖️ Cuándo conviene vender", "",
-             "Matemáticamente: cuando Ganancia Neta Depto > saldo ETF. Prácticamente: no antes del año 7–8. El apalancamiento funciona mejor mientras más tiempo pasa."),
+             "Matemáticamente: cuando la ganancia neta del depto supera la ganancia neta del ETF con los mismos aportes. También debes considerar liquidez, riesgo e impuestos."),
         ]
         for name, value, desc in guide_outputs:
             badge = f'<span class="badge badge-green">{value}</span>' if value else ""
