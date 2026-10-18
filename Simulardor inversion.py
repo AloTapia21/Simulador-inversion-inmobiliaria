@@ -156,6 +156,123 @@ h1, h2, h3 { font-family: 'Syne', sans-serif !important; }
 .guide-name { font-weight: 600; font-size: 0.9rem; margin-bottom: 0.3rem; }
 .guide-desc { font-size: 0.82rem; color: var(--muted); line-height: 1.5; }
 
+.breakdown-intro {
+    color: var(--muted);
+    font-size: 0.86rem;
+    line-height: 1.55;
+    margin: -0.25rem 0 1rem;
+}
+.stage-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.9rem;
+    margin-bottom: 1rem;
+}
+.stage-card {
+    background: linear-gradient(145deg, rgba(26,35,50,0.98), rgba(19,29,41,0.96));
+    border: 1px solid var(--border);
+    border-top: 3px solid var(--stage-color, var(--teal));
+    border-radius: 12px;
+    padding: 1rem 1.1rem;
+    min-width: 0;
+}
+.stage-kicker {
+    color: var(--stage-color, var(--teal));
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-bottom: 0.2rem;
+}
+.stage-title {
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    font-size: 1rem;
+    font-weight: 700;
+    margin-bottom: 0.8rem;
+}
+.money-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+    border-bottom: 1px solid rgba(61,81,102,0.28);
+    padding: 0.38rem 0;
+}
+.money-row:last-of-type { border-bottom: none; }
+.money-label { color: var(--muted); font-size: 0.78rem; }
+.money-value {
+    color: var(--text);
+    font-size: 0.82rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+.money-value.inflow { color: var(--teal); }
+.money-value.outflow { color: var(--rose); }
+.stage-total {
+    background: rgba(61,81,102,0.22);
+    border-radius: 8px;
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    margin-top: 0.75rem;
+    padding: 0.7rem 0.75rem;
+}
+.stage-total-label { color: var(--text); font-size: 0.76rem; font-weight: 600; }
+.stage-total-value {
+    color: var(--stage-color, var(--teal));
+    font-family: 'Syne', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.result-strip {
+    align-items: center;
+    background: linear-gradient(90deg, rgba(0,201,167,0.12), rgba(56,189,248,0.08));
+    border: 1px solid rgba(0,201,167,0.35);
+    border-radius: 12px;
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    margin: 0.9rem 0 1rem;
+    padding: 1rem 1.15rem;
+}
+.result-formula { color: var(--muted); font-size: 0.78rem; line-height: 1.5; }
+.result-value {
+    color: var(--teal);
+    font-family: 'Syne', sans-serif;
+    font-size: 1.45rem;
+    font-weight: 800;
+    white-space: nowrap;
+}
+.detail-panel {
+    background: rgba(26,35,50,0.72);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 0.9rem 1rem;
+}
+.detail-panel-title {
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+.detail-total {
+    border-top: 1px solid rgba(0,201,167,0.45);
+    display: flex;
+    justify-content: space-between;
+    margin-top: 0.35rem;
+    padding-top: 0.65rem;
+}
+.detail-note { color: var(--muted); font-size: 0.7rem; line-height: 1.45; margin-top: 0.7rem; }
+
+@media (max-width: 1050px) {
+    .stage-grid { grid-template-columns: 1fr; }
+    .result-strip { align-items: flex-start; flex-direction: column; }
+}
+
 div[data-testid="stTabs"] button {
     font-family: 'Syne', sans-serif;
     font-size: 0.82rem;
@@ -773,148 +890,215 @@ with tab1:
         "El aporte mensual usa solo max(dividendo − arriendo bruto, 0); no incluye los gastos operacionales del departamento."
     )
 
-    # ── CHARTS ROW ──
-    c_left, c_right = st.columns(2)
+    # ── DESGLOSE COMPLETO ──
+    pie_clp_v = R['pie_clp']
+    cier_clp = R['val_clp'] * gc_pct
+    iva_clp = R['devolucion_iva']
+    vd_yr = R['val_d'][yr_venta]
+    sh_yr = R['saldo_h'][yr_venta]
+    cv_yr = vd_yr * cv_pct
+    arriendos_tot = sum(R['arr_b'][1:yr_venta + 1])
+    gastos_tot = sum(R['gastos'][1:yr_venta + 1])
+    div_tot = sum(R['pagos_hipoteca'][1:yr_venta + 1])
+    flujo_operacion = arriendos_tot - gastos_tot - div_tot
+    venta_neta = vd_yr - sh_yr - cv_yr
+    gan_neta_val = venta_neta + flujo_operacion - pie_clp_v - cier_clp + iva_clp
+    detalle_gastos = {
+        clave: sum(valores[1:yr_venta + 1])
+        for clave, valores in R['gastos_detalle'].items()
+    }
 
-    with c_left:
-        vd_yr = R['val_d'][yr_venta]; sh_yr = R['saldo_h'][yr_venta]
-        cv_yr = vd_yr * cv_pct;       fa_yr = R['flujo_a'][yr_venta]
-        gan_neta_val = vd_yr - sh_yr - cv_yr + fa_yr
-        wf_text = [
-            f"${vd_yr:,.0f}",
-            f"(${sh_yr:,.0f})",
-            f"(${cv_yr:,.0f})",
-            f"${fa_yr:,.0f}" if fa_yr >= 0 else f"(${abs(fa_yr):,.0f})",
-            f"${gan_neta_val:,.0f}" if gan_neta_val >= 0 else f"(${abs(gan_neta_val):,.0f})",
-        ]
-        fig = go.Figure(go.Waterfall(
-            orientation="v",
-            measure=["absolute", "relative", "relative", "relative", "total"],
-            x=["Precio\nventa", "− Deuda\nbanco", "− Costos\nventa", "+ Flujos\nacum.", "GANANCIA\nNETA"],
-            y=[vd_yr, -sh_yr, -cv_yr, fa_yr, 0],
-            connector=dict(line=dict(color="rgba(61,81,102,0.5)")),
-            increasing=dict(marker=dict(color=TEAL)),
-            decreasing=dict(marker=dict(color=ROSE)),
-            totals=dict(marker=dict(color=AMBER)),
-            text=wf_text, textposition="outside",
-            textfont=dict(size=8, color="#e8edf2"),
-        ))
-        layout_wf = base_layout(f"Desglose ganancia neta — año {yr_venta}", height=360)
-        layout_wf['yaxis']['tickformat'] = "$,.0f"
-        layout_wf['margin'] = dict(l=10, r=10, t=40, b=60)
-        fig.update_layout(**layout_wf)
-        st.plotly_chart(fig, use_container_width=True)
+    st.markdown('<div class="section-title">De dónde sale la ganancia</div>', unsafe_allow_html=True)
+    st.markdown(
+        f'<p class="breakdown-intro">Todos los montos acumulados hasta el año {yr_venta}. '
+        'Las entradas de dinero están en verde y las salidas en rojo. La devolución de IVA se muestra '
+        'por separado para que puedas ver exactamente cómo reduce el desembolso inicial.</p>',
+        unsafe_allow_html=True,
+    )
 
-    with c_right:
-        cr = R['cap_rate_neto'] * 100
-        cr_color = TEAL if cr >= 2 else (AMBER if cr >= 1 else ROSE)
-        cr_label = "✅ Bueno" if cr >= 2 else ("⚠️ Bajo" if cr >= 1 else "❌ Muy bajo")
+    compra_total_label = "Sale de tu bolsillo" if R['cap_total'] >= 0 else "Caja que recibes al inicio"
+    compra_total_valor = R['cap_total'] if R['cap_total'] >= 0 else -R['cap_total']
+    operacion_clase = "inflow" if flujo_operacion >= 0 else "outflow"
+    operacion_signo = "+" if flujo_operacion >= 0 else "−"
+    st.markdown(f"""
+    <div class="stage-grid">
+      <div class="stage-card" style="--stage-color:{SKY}">
+        <div class="stage-kicker">01 · Compra</div>
+        <div class="stage-title">Caja inicial</div>
+        <div class="money-row"><span class="money-label">Valor contractual</span><span class="money-value">{fmt_clp(R['val_clp'])}</span></div>
+        <div class="money-row"><span class="money-label">Crédito hipotecario</span><span class="money-value">{fmt_clp(R['hipot'])}</span></div>
+        <div class="money-row"><span class="money-label">− Pie ({pie_pct*100:.1f}%)</span><span class="money-value outflow">{fmt_clp(pie_clp_v)}</span></div>
+        <div class="money-row"><span class="money-label">− Gastos de cierre</span><span class="money-value outflow">{fmt_clp(cier_clp)}</span></div>
+        <div class="money-row"><span class="money-label">+ Devolución efectiva de IVA</span><span class="money-value inflow">{fmt_clp(iva_clp)}</span></div>
+        <div class="stage-total"><span class="stage-total-label">{compra_total_label}</span><span class="stage-total-value">{fmt_clp(compra_total_valor)}</span></div>
+      </div>
+      <div class="stage-card" style="--stage-color:{AMBER}">
+        <div class="stage-kicker">02 · Operación</div>
+        <div class="stage-title">{yr_venta} años arrendando</div>
+        <div class="money-row"><span class="money-label">+ Arriendos brutos</span><span class="money-value inflow">{fmt_clp(arriendos_tot)}</span></div>
+        <div class="money-row"><span class="money-label">− Gastos operacionales</span><span class="money-value outflow">{fmt_clp(gastos_tot)}</span></div>
+        <div class="money-row"><span class="money-label">− Dividendos pagados</span><span class="money-value outflow">{fmt_clp(div_tot)}</span></div>
+        <div class="money-row"><span class="money-label">Intereses incluidos</span><span class="money-value">{fmt_clp(sum(R['interes_anual'][1:yr_venta + 1]))}</span></div>
+        <div class="money-row"><span class="money-label">Capital amortizado</span><span class="money-value">{fmt_clp(sum(R['amort_anual'][1:yr_venta + 1]))}</span></div>
+        <div class="stage-total"><span class="stage-total-label">Flujo neto acumulado</span><span class="stage-total-value {operacion_clase}">{operacion_signo}{fmt_clp(abs(flujo_operacion))}</span></div>
+      </div>
+      <div class="stage-card" style="--stage-color:{TEAL}">
+        <div class="stage-kicker">03 · Venta</div>
+        <div class="stage-title">Liquidación en el año {yr_venta}</div>
+        <div class="money-row"><span class="money-label">+ Precio estimado de venta</span><span class="money-value inflow">{fmt_clp(vd_yr)}</span></div>
+        <div class="money-row"><span class="money-label">− Deuda hipotecaria pendiente</span><span class="money-value outflow">{fmt_clp(sh_yr)}</span></div>
+        <div class="money-row"><span class="money-label">− Costo de venta ({cv_pct*100:.1f}%)</span><span class="money-value outflow">{fmt_clp(cv_yr)}</span></div>
+        <div class="money-row"><span class="money-label">Plusvalía acumulada</span><span class="money-value inflow">{fmt_clp(vd_yr - R['val_clp'])}</span></div>
+        <div class="money-row"><span class="money-label">Saldo que conservas</span><span class="money-value">{fmt_clp(venta_neta)}</span></div>
+        <div class="stage-total"><span class="stage-total-label">Caja neta de venta</span><span class="stage-total-value">{fmt_clp(venta_neta)}</span></div>
+      </div>
+    </div>
+    <div class="result-strip">
+      <div>
+        <div class="stage-kicker">Resultado final</div>
+        <div class="result-formula">Caja neta de venta {fmt_clp(venta_neta)} + flujo de operación {fmt_clp(flujo_operacion)} − pie {fmt_clp(pie_clp_v)} − cierre {fmt_clp(cier_clp)} + IVA {fmt_clp(iva_clp)}</div>
+      </div>
+      <div class="result-value">{fmt_clp(gan_neta_val)}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    fig_desglose = go.Figure(go.Waterfall(
+        orientation="v",
+        measure=["relative"] * 9 + ["total"],
+        x=[
+            "− Pie", "− Cierre", "+ Devolución<br>IVA", "+ Arriendos", "− Gastos<br>operacionales",
+            "− Dividendos", "+ Precio<br>venta", "− Deuda<br>pendiente", "− Costo<br>venta", "GANANCIA<br>NETA",
+        ],
+        y=[
+            -pie_clp_v / 1e6, -cier_clp / 1e6, iva_clp / 1e6, arriendos_tot / 1e6,
+            -gastos_tot / 1e6, -div_tot / 1e6, vd_yr / 1e6, -sh_yr / 1e6, -cv_yr / 1e6, 0,
+        ],
+        connector=dict(line=dict(color="rgba(138,155,176,0.35)", width=1)),
+        increasing=dict(marker=dict(color=TEAL)),
+        decreasing=dict(marker=dict(color=ROSE)),
+        totals=dict(marker=dict(color=SKY)),
+        text=[
+            f"−{fmt_clp_short(pie_clp_v)}", f"−{fmt_clp_short(cier_clp)}", f"+{fmt_clp_short(iva_clp)}",
+            f"+{fmt_clp_short(arriendos_tot)}", f"−{fmt_clp_short(gastos_tot)}", f"−{fmt_clp_short(div_tot)}",
+            f"+{fmt_clp_short(vd_yr)}", f"−{fmt_clp_short(sh_yr)}", f"−{fmt_clp_short(cv_yr)}",
+            fmt_clp_short(gan_neta_val),
+        ],
+        textposition="outside",
+        textfont=dict(size=10, color="#e8edf2"),
+        hovertemplate="%{x}: %{text}<extra></extra>",
+    ))
+    layout_desglose = base_layout(f"Flujo completo de la inversión · compra a venta en año {yr_venta}", height=430)
+    layout_desglose['yaxis']['ticksuffix'] = "M"
+    layout_desglose['yaxis']['title'] = "CLP millones"
+    layout_desglose['margin'] = dict(l=25, r=20, t=55, b=80)
+    layout_desglose['showlegend'] = False
+    fig_desglose.update_layout(**layout_desglose)
+    st.plotly_chart(fig_desglose, use_container_width=True)
+
+    # ── DETALLE DE GASTOS Y FINANCIAMIENTO ──
+    detalle_izq, detalle_der = st.columns(2)
+    etiquetas_gasto = [
+        ("vacancia", "Vacancia estimada"),
+        ("administracion", "Comisión de administración"),
+        ("reserva", "Reserva para contingencias"),
+        ("gastos_comunes", "Gastos comunes pagados por propietario"),
+        ("contribuciones", "Contribuciones SII"),
+        ("seguro", "Seguro hipotecario"),
+        ("mantencion", "Mantención"),
+        ("remodelaciones", "Remodelaciones"),
+    ]
+    filas_gastos = "".join(
+        f'<div class="money-row"><span class="money-label">− {etiqueta}</span>'
+        f'<span class="money-value outflow">{fmt_clp(detalle_gastos[clave])}</span></div>'
+        for clave, etiqueta in etiquetas_gasto
+    )
+    with detalle_izq:
         st.markdown(f"""
-        <div style="text-align:center;margin-bottom:0.3rem">
-          <span style="font-family:Syne;font-size:2rem;font-weight:800;color:{cr_color}">{cr:.2f}%</span>
-          <span style="font-size:0.8rem;color:#8a9bb0;margin-left:0.5rem">{cr_label} · Cap Rate Neto</span>
-        </div>""", unsafe_allow_html=True)
+        <div class="detail-panel">
+          <div class="detail-panel-title">Detalle operacional acumulado · {yr_venta} años</div>
+          <div class="money-row"><span class="money-label">+ Arriendos brutos</span><span class="money-value inflow">{fmt_clp(arriendos_tot)}</span></div>
+          {filas_gastos}
+          <div class="money-row"><span class="money-label">− Dividendos hipotecarios</span><span class="money-value outflow">{fmt_clp(div_tot)}</span></div>
+          <div class="detail-total"><span class="stage-total-label">Flujo neto de operación</span><span class="stage-total-value">{fmt_clp(flujo_operacion)}</span></div>
+          <div class="detail-note">Los gastos operacionales suman {fmt_clp(gastos_tot)}. Cada componente proviene de los supuestos del panel lateral y crece según corresponda.</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    ficha_rows = [
+        ("Costo efectivo tras IVA", fmt_clp(R['costo_efectivo']), "inflow"),
+        ("Capital inicial bruto", fmt_clp(R['cap_total_bruto']), ""),
+        ("Capital inicial neto", fmt_clp(R['cap_total']), ""),
+        ("Monto del crédito", fmt_clp(R['hipot']), ""),
+        ("Dividendo mensual", fmt_clp(R['div_m']), "outflow"),
+        (f"Intereses pagados en {yr_venta} años", fmt_clp(sum(R['interes_anual'][1:yr_venta + 1])), "outflow"),
+        (f"Capital amortizado en {yr_venta} años", fmt_clp(sum(R['amort_anual'][1:yr_venta + 1])), "inflow"),
+        ("Capital total aportado", fmt_clp(R['capital_aportado']), ""),
+        ("Cap Rate contractual", fmt_pct(R['cap_rate_neto']), ""),
+        ("Cap Rate sobre costo efectivo", fmt_pct(R['cap_rate_costo_efectivo']), "inflow"),
+        ("TIR", tir_txt, "inflow" if tir and tir > tasa_h else "outflow"),
+        ("Múltiplo del capital", roi_txt, "inflow" if roi and roi >= 1 else "outflow"),
+    ]
+    ficha_html = "".join(
+        f'<div class="money-row"><span class="money-label">{etiqueta}</span>'
+        f'<span class="money-value {clase}">{valor}</span></div>'
+        for etiqueta, valor, clase in ficha_rows
+    )
+    with detalle_der:
+        st.markdown(f"""
+        <div class="detail-panel">
+          <div class="detail-panel-title">Financiamiento y retorno</div>
+          {ficha_html}
+          <div class="detail-total"><span class="stage-total-label">Ganancia neta final</span><span class="stage-total-value">{fmt_clp(gan_neta_val)}</span></div>
+          <div class="detail-note">La devolución de IVA baja el costo efectivo y el capital inicial neto, pero mantiene intactos el crédito, el dividendo y la deuda hipotecaria.</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    # ── INDICADORES COMPLEMENTARIOS ──
+    st.markdown('<div class="section-title">Indicadores de retorno</div>', unsafe_allow_html=True)
+    c_left, c_right = st.columns(2)
+    cr = R['cap_rate_neto'] * 100
+    cr_color = TEAL if cr >= 2 else (AMBER if cr >= 1 else ROSE)
+    with c_left:
         benchmarks = [
             ("Tu Cap Rate", cr, cr_color),
-            ("Mínimo aceptable", 2.0, "rgba(245,158,11,0.6)"),
-            ("Benchmark RM", 3.0, "rgba(0,201,167,0.4)"),
-            ("Excelente", 4.5, "rgba(0,201,167,0.2)"),
+            ("Referencia 2%", 2.0, "rgba(245,158,11,0.6)"),
+            ("Referencia 3%", 3.0, "rgba(0,201,167,0.4)"),
+            ("Referencia 4,5%", 4.5, "rgba(0,201,167,0.2)"),
         ]
         fig2 = go.Figure()
         for label, val, color in benchmarks:
-            fig2.add_trace(go.Bar(name=label, x=[val], y=[label], orientation='h',
-                marker=dict(color=color), text=[f"{val:.2f}%"], textposition="outside",
-                textfont=dict(size=10, color="#e8edf2")))
+            fig2.add_trace(go.Bar(
+                name=label, x=[val], y=[label], orientation='h', marker=dict(color=color),
+                text=[f"{val:.2f}%"], textposition="outside", textfont=dict(size=10, color="#e8edf2"),
+            ))
         fig2.add_vline(x=cr, line=dict(color=cr_color, width=3))
-        layout_cr = base_layout("Cap Rate Neto Año 1", height=240)
-        layout_cr['xaxis'] = dict(range=[0,6], showgrid=True, gridcolor=GRID_COLOR,
-                                   ticksuffix="%", tickfont=dict(size=10), zeroline=False)
+        layout_cr = base_layout("Cap Rate neto año 1", height=260)
+        layout_cr['xaxis'] = dict(range=[0, 6], showgrid=True, gridcolor=GRID_COLOR,
+                                  ticksuffix="%", tickfont=dict(size=10), zeroline=False)
         layout_cr['yaxis'] = dict(showgrid=False, zeroline=False, tickfont=dict(size=10))
-        layout_cr['showlegend'] = False; layout_cr['barmode'] = 'overlay'
+        layout_cr['showlegend'] = False
+        layout_cr['barmode'] = 'overlay'
         layout_cr['margin'] = dict(l=10, r=80, t=50, b=20)
         fig2.update_layout(**layout_cr)
         st.plotly_chart(fig2, use_container_width=True)
 
-        # TIR vs Tasa
-        st.markdown('<div class="section-title" style="margin-top:0.3rem">TIR vs Tasa del Crédito</div>', unsafe_allow_html=True)
+    with c_right:
         tir_v = (tir or 0) * 100
         tir_col = TEAL if (tir and tir > tasa_h) else ROSE
         fig3 = go.Figure(go.Bar(
-            x=["TIR inversión", f"Tasa crédito ({tasa_h*100:.1f}%)"],
-            y=[tir_v, tasa_h*100],
-            marker_color=[tir_col, "rgba(61,81,102,0.6)"],
-            text=[f"{tir_v:.1f}%", f"{tasa_h*100:.1f}%"],
-            textposition="outside", textfont=dict(size=11, color="#e8edf2")))
-        ly3 = base_layout("", height=180)
+            x=["TIR inversión", "Tasa crédito"],
+            y=[tir_v, tasa_h * 100],
+            marker_color=[tir_col, "rgba(61,81,102,0.75)"],
+            text=[tir_txt, f"{tasa_h*100:.1f}%"],
+            textposition="outside",
+            textfont=dict(size=11, color="#e8edf2"),
+        ))
+        ly3 = base_layout("TIR versus tasa del crédito", height=260)
         ly3['yaxis']['ticksuffix'] = "%"
-        ly3['margin'] = dict(l=0, r=10, t=10, b=10); ly3['showlegend'] = False
+        ly3['margin'] = dict(l=10, r=10, t=50, b=30)
+        ly3['showlegend'] = False
         fig3.update_layout(**ly3)
         st.plotly_chart(fig3, use_container_width=True)
-
-    # ── DESEMBOLSO + RESUMEN ──
-    c_pie, c_info = st.columns([1, 1.6])
-    with c_pie:
-        pie_clp_v = R['pie_clp']
-        cier_clp  = R['val_clp'] * gc_pct
-        div_tot   = sum(R['pagos_hipoteca'][1:yr_venta + 1])
-        total_out = pie_clp_v + cier_clp + div_tot - R['devolucion_iva']
-        fig4 = go.Figure(go.Waterfall(
-            x=["Pie", "Cierre", f"Dividendos\n{yr_venta} años", "Devolución\nIVA", "Total neto"],
-            measure=["relative", "relative", "relative", "relative", "total"],
-            y=[pie_clp_v / 1e6, cier_clp / 1e6, div_tot / 1e6, -R['devolucion_iva'] / 1e6, 0],
-            increasing=dict(marker=dict(color=ROSE)),
-            decreasing=dict(marker=dict(color=TEAL)),
-            totals=dict(marker=dict(color=SKY)),
-            connector=dict(line=dict(color=GRID_COLOR)),
-            text=[fmt_clp_short(pie_clp_v), fmt_clp_short(cier_clp), fmt_clp_short(div_tot),
-                  f"−{fmt_clp_short(R['devolucion_iva'])}", fmt_clp_short(total_out)],
-            textposition="outside",
-            hovertemplate="%{x}: $%{y:.1f}M<extra></extra>",
-        ))
-        layout4 = base_layout(f"Desembolso neto a {yr_venta} años", height=290)
-        layout4['yaxis']['ticksuffix'] = "M"
-        layout4['showlegend'] = False
-        fig4.update_layout(**layout4)
-        st.plotly_chart(fig4, use_container_width=True)
-
-    with c_info:
-        st.markdown('<div class="section-title">Resumen financiero</div>', unsafe_allow_html=True)
-        info_rows = [
-            ("Valor depto",                    fmt_clp(R['val_clp'])),
-            ("Devolución efectiva de IVA",       fmt_clp(R['devolucion_iva'])),
-            ("Costo efectivo del depto",        fmt_clp(R['costo_efectivo'])),
-            ("Cap Rate sobre costo efectivo",   fmt_pct(R['cap_rate_costo_efectivo'])),
-            (f"Pie inicial ({int(pie_pct*100)}%)", fmt_clp(R['pie_clp'])),
-            ("Gastos cierre",                  fmt_clp(R['val_clp'] * gc_pct)),
-            ("Capital inicial bruto",           fmt_clp(R['cap_total_bruto'])),
-            ("Capital inicial neto",            fmt_clp(R['cap_total'])),
-            ("Capital aportado al vender",      fmt_clp(R['capital_aportado'])),
-            ("Monto hipotecario",               fmt_clp(R['hipot'])),
-            ("Tasa mensual",                   fmt_pct(tasa_h / 12)),
-            ("Dividendo mensual",               fmt_clp(R['div_m'])),
-            ("Dividendos año 1",                fmt_clp(R['pagos_hipoteca'][1])),
-            ("Contribuciones año 1",            fmt_clp(R['contribuciones_anuales'][1])),
-            ("Cuota ordinaria SII año 1",       fmt_clp(R['contribuciones_anuales'][1] / 4)),
-            ("Arriendo bruto mes 1",            fmt_clp(R['rent_m0'])),
-            ("Flujo neto año 1",                fmt_clp(R['flujo_n'][1])),
-            (f"Saldo hipoteca año {yr_venta}",  fmt_clp(R['saldo_h'][yr_venta])),
-            (f"Valor depto año {yr_venta}",     fmt_clp(R['val_d'][yr_venta])),
-            ("Ganancia neta total",             fmt_clp(R['gan_yr'])),
-            ("Inversión inicial ETF",           fmt_clp(R['etf_capital_inicial'])),
-            ("Aporte ETF mes 1",                fmt_clp(R['etf_aporte_mensual'][1])),
-            ("Capital total aportado ETF",      fmt_clp(R['etf_aportes'][yr_venta])),
-            ("Saldo ETF",                       fmt_clp(R['etf_saldo'][yr_venta])),
-            ("Ganancia neta ETF",               fmt_clp(R['etf_yr'])),
-            ("TIR",                             fmt_pct(tir) if tir else "—"),
-            ("Múltiplo del capital",            f"{roi:.2f}x" if roi else "—"),
-        ]
-        rows_html = "".join(
-            f'<tr><td style="color:#8a9bb0;font-size:0.8rem;padding:0.35rem 0">{k}</td>'
-            f'<td style="text-align:right;font-weight:500;font-size:0.85rem;padding:0.35rem 0;'
-            f'color:{"#00c9a7" if i >= len(info_rows)-3 else "#e8edf2"}">{v}</td></tr>'
-            for i, (k, v) in enumerate(info_rows))
-        st.markdown(f'<table style="width:100%;border-collapse:collapse">{rows_html}</table>',
-                    unsafe_allow_html=True)
 
 
 
@@ -923,6 +1107,17 @@ with tab1:
 # TAB 2: FLUJOS & PROYECCIONES
 # ════════════════════════════════════════════════════════════════════════════
 with tab2:
+
+    st.markdown('<div class="section-title">Movimiento inicial · año 0</div>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="detail-panel" style="margin-bottom:1rem">
+      <div class="money-row"><span class="money-label">− Pie del departamento</span><span class="money-value outflow">{fmt_clp(R['pie_clp'])}</span></div>
+      <div class="money-row"><span class="money-label">− Gastos de cierre</span><span class="money-value outflow">{fmt_clp(R['val_clp'] * gc_pct)}</span></div>
+      <div class="money-row"><span class="money-label">+ Devolución efectiva de IVA</span><span class="money-value inflow">{fmt_clp(R['devolucion_iva'])}</span></div>
+      <div class="detail-total"><span class="stage-total-label">Flujo neto inicial</span><span class="stage-total-value">{fmt_clp(R['flujo_n'][0])}</span></div>
+      <div class="detail-note">Flujo inicial = − pie − gastos de cierre + devolución IVA. El crédito de {fmt_clp(R['hipot'])} y el dividendo de {fmt_clp(R['div_m'])} no cambian por este beneficio.</div>
+    </div>
+    """, unsafe_allow_html=True)
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(
@@ -1045,6 +1240,7 @@ with tab2:
             winner = "🏠 Depto" if g > etf_s else "📈 ETF"
         rows.append({
             "Año": y, "Valor Depto": fmt_clp(R['val_d'][y]),
+            "Devolución IVA": fmt_clp(R['devolucion_iva']) if y == 0 else "—",
             "Arriendo Bruto": fmt_clp(R['arr_b'][y]) if y > 0 else "—",
             "Gastos Op.": fmt_clp(R['gastos'][y]) if y > 0 else "—",
             "Flujo Neto": fmt_clp(R['flujo_n'][y]),

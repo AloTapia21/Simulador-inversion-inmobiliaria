@@ -174,6 +174,16 @@ def compute_simulation(p):
 
     years = list(range(HORIZONTE_ANIOS + 1))
     val_d, arr_b, gastos, contribuciones_anuales = [], [], [], []
+    gastos_detalle = {
+        "vacancia": [],
+        "administracion": [],
+        "reserva": [],
+        "gastos_comunes": [],
+        "contribuciones": [],
+        "seguro": [],
+        "mantencion": [],
+        "remodelaciones": [],
+    }
     flujo_n, flujo_a, gan_v = [], [], []
     flujos_trimestrales = []
     etf_b, etf_saldo_hist, etf_aportes_hist = [], [], []
@@ -193,6 +203,8 @@ def compute_simulation(p):
             arr_b.append(0.0)
             gastos.append(0.0)
             contribuciones_anuales.append(0.0)
+            for valores in gastos_detalle.values():
+                valores.append(0.0)
             flujo_n.append(-cap_total)
             flujo_a.append(-cap_total)
             gan_v.append(None)
@@ -219,6 +231,14 @@ def compute_simulation(p):
         remo = uf * p["remodelaciones"].get(yr, 0)
         gasto = vac_loss + adm_loss + res_loss + gcom_anual + cont_anual + seg_anual + mant_anual + remo
         gastos.append(gasto)
+        gastos_detalle["vacancia"].append(vac_loss)
+        gastos_detalle["administracion"].append(adm_loss)
+        gastos_detalle["reserva"].append(res_loss)
+        gastos_detalle["gastos_comunes"].append(gcom_anual)
+        gastos_detalle["contribuciones"].append(cont_anual)
+        gastos_detalle["seguro"].append(seg_anual)
+        gastos_detalle["mantencion"].append(mant_anual)
+        gastos_detalle["remodelaciones"].append(remo)
 
         flujo = rent_anual - gasto - pagos_hipoteca[yr]
         flujo_n.append(flujo)
@@ -309,6 +329,7 @@ def compute_simulation(p):
         "val_d": val_d,
         "arr_b": arr_b,
         "gastos": gastos,
+        "gastos_detalle": gastos_detalle,
         "contribuciones_anuales": contribuciones_anuales,
         "flujos_trimestrales": flujos_trimestrales,
         "flujo_n": flujo_n,

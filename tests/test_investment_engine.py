@@ -171,6 +171,15 @@ class SimulacionTests(unittest.TestCase):
 
         self.assertAlmostEqual(resultado["gastos"][1], resultado["val_clp"] * parametros["mant"])
 
+    def test_detalle_de_gastos_reconcilia_con_el_total_anual(self):
+        resultado = compute_simulation(parametros_base())
+
+        for anio in range(1, 31):
+            detalle_anual = sum(
+                valores[anio] for valores in resultado["gastos_detalle"].values()
+            )
+            self.assertAlmostEqual(detalle_anual, resultado["gastos"][anio])
+
     def test_contribuciones_se_distribuyen_en_sus_trimestres_de_vencimiento(self):
         resultado = compute_simulation(parametros_base())
         contribuciones = [
