@@ -12,6 +12,7 @@ create table if not exists public.investment_projects (
   property_value_clp numeric not null default 0,
   current_market_value_uf numeric not null default 0,
   down_payment_clp numeric not null default 0,
+  down_payment_bonus_clp numeric not null default 0 check (down_payment_bonus_clp >= 0),
   mortgage_amount_clp numeric not null default 0,
   annual_mortgage_rate numeric not null default 0,
   mortgage_term_years integer not null default 30,
@@ -34,6 +35,18 @@ create table if not exists public.investment_projects (
   closing_cost_rate numeric not null default 0,
   sale_cost_rate numeric not null default 0,
   iva_refund_clp numeric not null default 0,
+  iva_refund_status text not null default 'not_applicable'
+    check (iva_refund_status in ('not_applicable', 'evaluating', 'requested', 'approved', 'received')),
+  iva_refund_expected_date date,
+  dfl2_qualified boolean not null default false,
+  property_surface_m2 numeric not null default 0 check (property_surface_m2 >= 0),
+  property_is_new boolean not null default true,
+  acquisition_owner_type text not null default 'natural_person'
+    check (acquisition_owner_type in ('natural_person', 'individual_business', 'company')),
+  dfl2_property_number integer not null default 1 check (dfl2_property_number >= 1),
+  estimated_income_tax_rate numeric not null default 0
+    check (estimated_income_tax_rate between 0 and 1),
+  use_dfl2_5pct_regime boolean not null default false,
   planned_sale_year integer not null default 10,
   notes text not null default '',
   created_at timestamptz not null default now(),
@@ -45,12 +58,46 @@ create index if not exists investment_projects_owner_idx
 
 alter table public.investment_projects
   add column if not exists current_market_value_uf numeric not null default 0,
+  add column if not exists down_payment_bonus_clp numeric not null default 0,
+  add column if not exists iva_refund_status text not null default 'not_applicable',
+  add column if not exists iva_refund_expected_date date,
+  add column if not exists dfl2_qualified boolean not null default false,
+  add column if not exists property_surface_m2 numeric not null default 0,
+  add column if not exists property_is_new boolean not null default true,
+  add column if not exists acquisition_owner_type text not null default 'natural_person',
+  add column if not exists dfl2_property_number integer not null default 1,
+  add column if not exists estimated_income_tax_rate numeric not null default 0,
+  add column if not exists use_dfl2_5pct_regime boolean not null default false,
   add column if not exists common_expenses_growth_annual numeric not null default 0.03,
   add column if not exists contributions_growth_annual numeric not null default 0.03,
   add column if not exists insurance_growth_annual numeric not null default 0.03,
   add column if not exists periodic_expense_interval_years integer not null default 5,
   add column if not exists periodic_expense_clp numeric not null default 0,
   add column if not exists periodic_expense_growth_annual numeric not null default 0.03;
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'investment_projects_iva_refund_status_check') then
+    alter table public.investment_projects add constraint investment_projects_iva_refund_status_check
+      check (iva_refund_status in ('not_applicable', 'evaluating', 'requested', 'approved', 'received'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'investment_projects_tax_fields_check') then
+    alter table public.investment_projects add constraint investment_projects_tax_fields_check
+      check (
+        down_payment_bonus_clp >= 0
+        and property_surface_m2 >= 0
+        and dfl2_property_number >= 1
+        and estimated_income_tax_rate between 0 and 1
+      );
+  end if;
+end $$;
+
+alter table public.investment_projects
+  drop constraint if exists investment_projects_acquisition_owner_type_check,
+  drop constraint if exists investment_projects_owner_type_check;
+alter table public.investment_projects
+  add constraint investment_projects_owner_type_check
+  check (acquisition_owner_type in ('natural_person', 'individual_business', 'company'));
 
 create table if not exists public.investment_monthly_records (
   id uuid primary key default gen_random_uuid(),
@@ -122,7 +169,7 @@ create table if not exists public.investment_transactions (
   transaction_date date not null,
   category text not null check (category in (
     'rent', 'iva_refund', 'other_income', 'down_payment', 'closing_costs', 'mortgage',
-    'administration', 'common_expenses', 'contributions', 'insurance', 'maintenance',
+    'administration', 'common_expenses', 'contributions', 'income_tax', 'insurance', 'maintenance',
     'repairs', 'furnishing', 'other_expense'
   )),
   direction text not null check (direction in ('income', 'expense')),
@@ -135,6 +182,15 @@ create table if not exists public.investment_transactions (
   updated_at timestamptz not null default now(),
   unique (project_id, id)
 );
+
+alter table public.investment_transactions
+  drop constraint if exists investment_transactions_category_check;
+alter table public.investment_transactions
+  add constraint investment_transactions_category_check check (category in (
+    'rent', 'iva_refund', 'other_income', 'down_payment', 'closing_costs', 'mortgage',
+    'administration', 'common_expenses', 'contributions', 'income_tax', 'insurance',
+    'maintenance', 'repairs', 'furnishing', 'other_expense'
+  ));
 
 create index if not exists investment_transactions_project_date_idx
   on public.investment_transactions (project_id, transaction_date desc, created_at desc);

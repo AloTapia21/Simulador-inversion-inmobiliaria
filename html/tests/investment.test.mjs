@@ -4,8 +4,10 @@ import {
   EMPTY_PROJECT,
   calculateXirr,
   currentInvestmentSnapshot,
+  dfl2Assessment,
   memberContributionSummary,
   mortgageBalance,
+  plannedAcquisitionSummary,
   projectedInvestmentIrr,
 } from "../lib/investment.ts";
 
@@ -62,4 +64,29 @@ test("XIRR and projected engine return an annualized rate", () => {
   ]);
   assert.ok(xirr !== null && Math.abs(xirr - 0.1) < 0.001);
   assert.notEqual(projectedInvestmentIrr(project(), 10), null);
+});
+
+test("bono pie and IVA refund reduce net capital without hiding purchase cash", () => {
+  const investment = project({
+    down_payment_clp: 40_000_000,
+    down_payment_bonus_clp: 10_000_000,
+    property_value_clp: 200_000_000,
+    closing_cost_rate: 0.02,
+    iva_refund_clp: 8_000_000,
+    iva_refund_status: "approved",
+  });
+  const summary = plannedAcquisitionSummary(investment);
+  assert.equal(summary.cashDownPayment, 30_000_000);
+  assert.equal(summary.cashRequiredAtPurchase, 34_000_000);
+  assert.equal(summary.netCapitalAfterRefund, 26_000_000);
+});
+
+test("DFL2 distinguishes the first two homes and the optional 2027 regime", () => {
+  const exempt = project({ dfl2_qualified: true, property_surface_m2: 60, dfl2_property_number: 2, acquisition_owner_type: "natural_person", estimated_income_tax_rate: 0.2 });
+  assert.equal(dfl2Assessment(exempt, "2026-11-15").effectiveTaxRate, 0);
+  const third = project({ ...exempt, dfl2_property_number: 3, use_dfl2_5pct_regime: true });
+  assert.equal(dfl2Assessment(third, "2026-11-15").effectiveTaxRate, 0.2);
+  assert.equal(dfl2Assessment(third, "2027-01-01").effectiveTaxRate, 0.05);
+  assert.equal(dfl2Assessment(third, "2027-01").effectiveTaxRate, 0.05);
+  assert.equal(dfl2Assessment({ ...third, acquisition_owner_type: "individual_business" }, "2026-12").currentlyExempt, false);
 });

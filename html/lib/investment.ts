@@ -10,6 +10,7 @@ export type Project = {
   property_value_clp: number;
   current_market_value_uf: number;
   down_payment_clp: number;
+  down_payment_bonus_clp: number;
   mortgage_amount_clp: number;
   annual_mortgage_rate: number;
   mortgage_term_years: number;
@@ -32,6 +33,15 @@ export type Project = {
   closing_cost_rate: number;
   sale_cost_rate: number;
   iva_refund_clp: number;
+  iva_refund_status: "not_applicable" | "evaluating" | "requested" | "approved" | "received";
+  iva_refund_expected_date: string | null;
+  dfl2_qualified: boolean;
+  property_surface_m2: number;
+  property_is_new: boolean;
+  acquisition_owner_type: "natural_person" | "individual_business" | "company";
+  dfl2_property_number: number;
+  estimated_income_tax_rate: number;
+  use_dfl2_5pct_regime: boolean;
   planned_sale_year: number;
   notes: string;
   created_at?: string;
@@ -83,6 +93,7 @@ export type TransactionCategory =
   | "administration"
   | "common_expenses"
   | "contributions"
+  | "income_tax"
   | "insurance"
   | "maintenance"
   | "repairs"
@@ -129,6 +140,7 @@ export const TRANSACTION_CATEGORIES: Array<{
   { value: "administration", label: "Comisión administradora", direction: "expense", operating: true },
   { value: "common_expenses", label: "Gastos comunes", direction: "expense", operating: true },
   { value: "contributions", label: "Contribuciones", direction: "expense", operating: true },
+  { value: "income_tax", label: "Impuesto a la renta del arriendo", direction: "expense", operating: true },
   { value: "insurance", label: "Seguro", direction: "expense", operating: true },
   { value: "maintenance", label: "Mantención", direction: "expense", operating: true },
   { value: "repairs", label: "Arreglos / reparaciones", direction: "expense", operating: true },
@@ -159,6 +171,7 @@ export const EMPTY_PROJECT: ProjectDraft = {
   property_value_clp: 199210000,
   current_market_value_uf: 0,
   down_payment_clp: 39842000,
+  down_payment_bonus_clp: 0,
   mortgage_amount_clp: 159368000,
   annual_mortgage_rate: 0.04,
   mortgage_term_years: 30,
@@ -181,6 +194,15 @@ export const EMPTY_PROJECT: ProjectDraft = {
   closing_cost_rate: 0.025,
   sale_cost_rate: 0.025,
   iva_refund_clp: 0,
+  iva_refund_status: "not_applicable",
+  iva_refund_expected_date: null,
+  dfl2_qualified: false,
+  property_surface_m2: 0,
+  property_is_new: true,
+  acquisition_owner_type: "natural_person",
+  dfl2_property_number: 1,
+  estimated_income_tax_rate: 0,
+  use_dfl2_5pct_regime: false,
   planned_sale_year: 10,
   notes: "",
 };
@@ -247,6 +269,7 @@ export function monthlyEstimate(project: Project, period: string) {
   const insurance =
     (number(project.annual_insurance_estimated) / 12) *
     Math.pow(1 + number(project.insurance_growth_annual), months / 12);
+  const incomeTax = rent * rentalIncomeTaxRate(project, period);
   const intervalMonths = Math.round(number(project.periodic_expense_interval_years) * 12);
   const occurrence = intervalMonths > 0 && months > 0 && months % intervalMonths === 0
     ? months / intervalMonths
@@ -264,6 +287,7 @@ export function monthlyEstimate(project: Project, period: string) {
     contributions +
     insurance +
     maintenance +
+    incomeTax +
     extraordinary;
   return {
     rent,
@@ -276,8 +300,61 @@ export function monthlyEstimate(project: Project, period: string) {
     contributions,
     insurance,
     maintenance,
+    incomeTax,
     extraordinary,
   };
+}
+
+export function plannedAcquisitionSummary(project: Project) {
+  const contractualDownPayment = number(project.down_payment_clp);
+  const downPaymentBonus = Math.min(contractualDownPayment, number(project.down_payment_bonus_clp));
+  const cashDownPayment = Math.max(0, contractualDownPayment - downPaymentBonus);
+  const closingCosts = number(project.property_value_clp) * number(project.closing_cost_rate);
+  const cashRequiredAtPurchase = cashDownPayment + closingCosts;
+  const expectedVatRefund = project.iva_refund_status === "not_applicable" ? 0 : number(project.iva_refund_clp);
+  const netCapitalAfterRefund = cashRequiredAtPurchase - expectedVatRefund;
+  return {
+    contractualDownPayment,
+    downPaymentBonus,
+    cashDownPayment,
+    closingCosts,
+    cashRequiredAtPurchase,
+    expectedVatRefund,
+    netCapitalAfterRefund,
+  };
+}
+
+export function dfl2Assessment(project: Project, date = new Date().toISOString().slice(0, 10)) {
+  const assessmentDate = date.length === 7 ? `${date}-01` : date.slice(0, 10);
+  const qualifiesAsHousing = Boolean(project.dfl2_qualified) &&
+    number(project.property_surface_m2) > 0 &&
+    number(project.property_surface_m2) <= 140;
+  const naturalPerson = project.acquisition_owner_type === "natural_person";
+  const withinFirstTwo = number(project.dfl2_property_number) > 0 && number(project.dfl2_property_number) <= 2;
+  const currentlyExempt = qualifiesAsHousing && naturalPerson && withinFirstTwo;
+  const purchase = project.purchase_date;
+  const transitionalNewHousing = Boolean(project.property_is_new) &&
+    number(project.property_surface_m2) <= 140 &&
+    purchase >= "2026-10-17" && purchase <= "2027-10-17";
+  const specialRegimeEligible = qualifiesAsHousing &&
+    (number(project.property_surface_m2) <= 90 || transitionalNewHousing);
+  const specialRegimeActive = assessmentDate >= "2027-01-01" &&
+    Boolean(project.use_dfl2_5pct_regime) &&
+    specialRegimeEligible &&
+    !currentlyExempt;
+  return {
+    qualifiesAsHousing,
+    naturalPerson,
+    withinFirstTwo,
+    currentlyExempt,
+    specialRegimeEligible,
+    specialRegimeActive,
+    effectiveTaxRate: currentlyExempt ? 0 : specialRegimeActive ? 0.05 : number(project.estimated_income_tax_rate),
+  };
+}
+
+export function rentalIncomeTaxRate(project: Project, date: string) {
+  return dfl2Assessment(project, date).effectiveTaxRate;
 }
 
 export function mortgagePayment(project: Project) {
@@ -460,6 +537,8 @@ function sumTransactions(
 
 export function buildAnnualProjection(project: Project, horizon = 30) {
   let cumulativeCashflow = 0;
+  const purchaseDate = new Date(`${project.purchase_date}T12:00:00`);
+  const acquisition = plannedAcquisitionSummary(project);
   return Array.from({ length: horizon }, (_, index) => {
     const year = index + 1;
     const valueStart = number(project.property_value_clp) * Math.pow(1 + number(project.annual_appreciation_rate), year - 1);
@@ -477,12 +556,16 @@ export function buildAnnualProjection(project: Project, horizon = 30) {
       ? number(project.periodic_expense_clp) *
         Math.pow(1 + number(project.periodic_expense_growth_annual), year)
       : 0;
+    const projectionDate = new Date(purchaseDate.getFullYear() + year, purchaseDate.getMonth(), purchaseDate.getDate(), 12)
+      .toISOString().slice(0, 10);
+    const incomeTax = annualRent * rentalIncomeTaxRate(project, projectionDate);
     const operatingExpenses =
       annualRent * (number(project.vacancy_rate_estimated) + number(project.admin_rate_estimated)) +
       commonExpenses +
       contributions +
       insurance +
       valueStart * number(project.maintenance_rate_estimated) +
+      incomeTax +
       extraordinary;
     const mortgage = year <= number(project.mortgage_term_years) ? mortgagePayment(project) * 12 : 0;
     const balanceStart = mortgageBalance(project, (year - 1) * 12);
@@ -493,20 +576,24 @@ export function buildAnnualProjection(project: Project, horizon = 30) {
     cumulativeCashflow += cashflow;
     const netSale = valueEnd * (1 - number(project.sale_cost_rate)) - balance;
     const netResult =
-      netSale + cumulativeCashflow - number(project.down_payment_clp) -
-      number(project.property_value_clp) * number(project.closing_cost_rate) + number(project.iva_refund_clp);
-    return { year, value: valueEnd, annualRent, operatingExpenses, extraordinary, mortgage, principalPaid, interestPaid, cashflow, cumulativeCashflow, balance, netSale, netResult };
+      netSale + cumulativeCashflow - acquisition.cashRequiredAtPurchase + acquisition.expectedVatRefund;
+    return { year, value: valueEnd, annualRent, operatingExpenses, incomeTax, extraordinary, mortgage, principalPaid, interestPaid, cashflow, cumulativeCashflow, balance, netSale, netResult };
   });
 }
 
 export function projectedInvestmentIrr(project: Project, saleYear = project.planned_sale_year) {
   const projection = buildAnnualProjection(project, Math.max(1, saleYear));
   const purchase = new Date(`${project.purchase_date}T12:00:00`);
-  const initialInvestment = number(project.down_payment_clp) +
-    number(project.property_value_clp) * number(project.closing_cost_rate);
+  const acquisition = plannedAcquisitionSummary(project);
   const flows: Array<{ date: string; amount: number }> = [
-    { date: project.purchase_date, amount: -initialInvestment + number(project.iva_refund_clp) },
+    { date: project.purchase_date, amount: -acquisition.cashRequiredAtPurchase },
   ];
+  if (acquisition.expectedVatRefund > 0) {
+    flows.push({
+      date: project.iva_refund_expected_date || addMonths(project.purchase_date, 6),
+      amount: acquisition.expectedVatRefund,
+    });
+  }
   projection.slice(0, saleYear).forEach((row) => {
     const date = new Date(purchase.getFullYear() + row.year, purchase.getMonth(), purchase.getDate(), 12);
     const amount = row.cashflow + (row.year === saleYear ? row.netSale : 0);
@@ -586,4 +673,10 @@ function monthsBetween(startValue: string, endValue: string) {
   const start = new Date(`${normalizePeriod(startValue)}T12:00:00`);
   const end = new Date(`${normalizePeriod(endValue)}T12:00:00`);
   return (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth();
+}
+
+function addMonths(value: string, months: number) {
+  const date = new Date(`${value.slice(0, 10)}T12:00:00`);
+  date.setMonth(date.getMonth() + months);
+  return date.toISOString().slice(0, 10);
 }

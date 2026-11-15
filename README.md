@@ -18,6 +18,8 @@ VETA está preparada para desplegarse en Vercel y usa Supabase para autenticaci�
 - compartir una inversión con copropietarios y asignar cada pago o ingreso a una o varias personas;
 - registrar el monto CLP y la UF histórica de pie, dividendos, arriendos y demás movimientos;
 - estimar valor actual, deuda, patrimonio y TIR con el motor financiero;
+- separar pie contractual, bono pie, desembolso efectivo y una eventual devolución de IVA;
+- modelar la exención DFL2 de las primeras viviendas y el escenario opcional del 5% desde 2027 para múltiples propiedades;
 - proyectar el resultado de venta;
 - exportar el historial a CSV para abrirlo en Google Sheets;
 - usar una interfaz responsive desde computador o teléfono.

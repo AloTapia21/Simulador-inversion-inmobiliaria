@@ -17,11 +17,13 @@ import {
 import {
   buildComparisons,
   currentInvestmentSnapshot,
+  dfl2Assessment,
   formatClp,
   formatPercent,
   formatUf,
   memberContributionSummary,
   number,
+  plannedAcquisitionSummary,
   transactionCategory,
   TRANSACTION_CATEGORIES,
   type InvestmentMember,
@@ -111,10 +113,15 @@ export function CollaborationView({ project, cloud, onProjectUpdated, onNotice }
     () => buildComparisons(project, []).reduce((sum, month) => sum + month.estimatedCashflow, 0),
     [project],
   );
-  const actualAcquisition = transactions
+  const actualAcquisitionGross = transactions
     .filter((item) => item.direction === "expense" && ["down_payment", "closing_costs"].includes(item.category))
     .reduce((sum, item) => sum + item.amount_clp, 0);
-  const plannedAcquisition = number(project.down_payment_clp) + number(project.property_value_clp) * number(project.closing_cost_rate);
+  const actualVatRefund = transactions
+    .filter((item) => item.direction === "income" && item.category === "iva_refund")
+    .reduce((sum, item) => sum + item.amount_clp, 0);
+  const actualAcquisitionNet = actualAcquisitionGross - actualVatRefund;
+  const acquisition = plannedAcquisitionSummary(project);
+  const dfl2 = dfl2Assessment(project);
 
   function openTransaction(category: TransactionCategory = "mortgage") {
     const next = { ...emptyTransaction(project), category, uf_value: currentUf || project.uf_value, allocation: members[0]?.id ?? "shared" };
@@ -254,8 +261,9 @@ export function CollaborationView({ project, cloud, onProjectUpdated, onNotice }
         </article>
 
         <article className="panel acquisition-card">
-          <div className="panel-heading"><div><span className="panel-kicker">Compra</span><h2>Aportes iniciales</h2></div><button className="text-button" onClick={() => openTransaction("down_payment")}><Plus size={15} /> Registrar pie</button></div>
-          <div className="acquisition-comparison"><div><span>Real registrado</span><strong>{formatClp(actualAcquisition)}</strong></div><div><span>Plan original</span><strong>{formatClp(plannedAcquisition)}</strong></div><div><span>Diferencia</span><strong className={actualAcquisition <= plannedAcquisition ? "positive-text" : "negative-text"}>{formatClp(actualAcquisition - plannedAcquisition)}</strong></div></div>
+          <div className="panel-heading"><div><span className="panel-kicker">Compra</span><h2>Capital realmente aportado</h2></div><button className="text-button" onClick={() => openTransaction("down_payment")}><Plus size={15} /> Registrar aporte</button></div>
+          <div className="acquisition-comparison acquisition-detail"><div><span>Pie contractual</span><strong>{formatClp(acquisition.contractualDownPayment)}</strong></div><div><span>Bono pie inmobiliaria</span><strong className="positive-text">−{formatClp(acquisition.downPaymentBonus)}</strong></div><div><span>Pie pagado en caja</span><strong>{formatClp(acquisition.cashDownPayment)}</strong></div><div><span>Gastos de compra</span><strong>+{formatClp(acquisition.closingCosts)}</strong></div><div><span>IVA esperado ({ivaStatusLabel(project.iva_refund_status)})</span><strong className="positive-text">−{formatClp(acquisition.expectedVatRefund)}</strong></div><div className="acquisition-total"><span>Capital neto del plan</span><strong>{formatClp(acquisition.netCapitalAfterRefund)}</strong></div><div><span>Capital real registrado</span><strong>{formatClp(actualAcquisitionNet)}</strong></div><div><span>Diferencia real vs plan</span><strong className={actualAcquisitionNet <= acquisition.netCapitalAfterRefund ? "positive-text" : "negative-text"}>{formatClp(actualAcquisitionNet - acquisition.netCapitalAfterRefund)}</strong></div></div>
+          <div className={`tax-status ${dfl2.currentlyExempt ? "eligible" : "review"}`}><strong>{dfl2.currentlyExempt ? "Arriendo exento según escenario DFL2" : dfl2.specialRegimeEligible ? "Revisar régimen DFL2 especial desde 2027" : "Arriendo afecto según tasa configurada"}</strong><span>{project.dfl2_qualified ? `${project.dfl2_property_number}° inmueble · ${project.property_surface_m2} m² · tasa usada ${formatPercent(dfl2.effectiveTaxRate)}` : "Completa los datos DFL2 en Supuestos para estimar el efecto tributario."}</span></div>
         </article>
       </section>
 
@@ -349,3 +357,4 @@ function payerLabel(transaction: InvestmentTransaction, members: InvestmentMembe
 
 function initials(name: string) { return name.split(/\s|@/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("") || "PI"; }
 function formatDate(value: string) { return new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(`${value.slice(0, 10)}T12:00:00`)); }
+function ivaStatusLabel(status: Project["iva_refund_status"]) { return ({ not_applicable: "no aplica", evaluating: "en evaluación", requested: "solicitada", approved: "aprobada", received: "recibida" })[status] ?? "sin estado"; }

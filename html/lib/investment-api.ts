@@ -11,7 +11,8 @@ import {
 export function sanitizeProject(body: Record<string, unknown>) {
   const allowed = [
     "name", "address", "status", "purchase_date", "uf_value", "property_value_uf",
-    "property_value_clp", "current_market_value_uf", "down_payment_clp", "mortgage_amount_clp", "annual_mortgage_rate",
+    "property_value_clp", "current_market_value_uf", "down_payment_clp", "down_payment_bonus_clp",
+    "mortgage_amount_clp", "annual_mortgage_rate",
     "mortgage_term_years", "monthly_payment_estimated", "initial_rent_estimated",
     "rent_growth_annual", "vacancy_rate_estimated", "admin_rate_estimated",
     "monthly_common_expenses_estimated", "common_expenses_growth_annual",
@@ -19,14 +20,22 @@ export function sanitizeProject(body: Record<string, unknown>) {
     "annual_insurance_estimated", "insurance_growth_annual", "maintenance_rate_estimated",
     "periodic_expense_interval_years", "periodic_expense_clp", "periodic_expense_growth_annual",
     "annual_appreciation_rate",
-    "closing_cost_rate", "sale_cost_rate", "iva_refund_clp", "planned_sale_year", "notes",
+    "closing_cost_rate", "sale_cost_rate", "iva_refund_clp", "iva_refund_status",
+    "iva_refund_expected_date", "dfl2_qualified", "property_surface_m2", "property_is_new",
+    "acquisition_owner_type", "dfl2_property_number", "estimated_income_tax_rate",
+    "use_dfl2_5pct_regime", "planned_sale_year", "notes",
   ];
-  return Object.fromEntries(allowed.filter((key) => key in body).map((key) => [key, body[key]]));
+  const sanitized = Object.fromEntries(allowed.filter((key) => key in body).map((key) => [key, body[key]]));
+  if ("iva_refund_expected_date" in sanitized && !sanitized.iva_refund_expected_date) {
+    sanitized.iva_refund_expected_date = null;
+  }
+  return sanitized;
 }
 
 export function coerceProject(project: Project) {
   const numeric = [
     "uf_value", "property_value_uf", "property_value_clp", "current_market_value_uf", "down_payment_clp",
+    "down_payment_bonus_clp",
     "mortgage_amount_clp", "annual_mortgage_rate", "mortgage_term_years",
     "monthly_payment_estimated", "initial_rent_estimated", "rent_growth_annual",
     "vacancy_rate_estimated", "admin_rate_estimated", "monthly_common_expenses_estimated",
@@ -34,7 +43,7 @@ export function coerceProject(project: Project) {
     "annual_insurance_estimated", "insurance_growth_annual", "maintenance_rate_estimated",
     "periodic_expense_interval_years", "periodic_expense_clp", "periodic_expense_growth_annual",
     "annual_appreciation_rate", "closing_cost_rate", "sale_cost_rate", "iva_refund_clp",
-    "planned_sale_year",
+    "property_surface_m2", "dfl2_property_number", "estimated_income_tax_rate", "planned_sale_year",
   ];
   const result = { ...project } as Project & Record<string, unknown>;
   numeric.forEach((key) => { result[key] = Number(result[key] ?? 0); });

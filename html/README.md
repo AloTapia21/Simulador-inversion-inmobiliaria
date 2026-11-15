@@ -29,6 +29,10 @@ El valor actual distingue tres referencias:
 
 La UF se consulta desde `mindicador.cl` y siempre queda editable como respaldo.
 
+La compra también separa el pie contractual, el bono pie de la inmobiliaria, el efectivo pagado al comprar y una eventual devolución de IVA con estado y fecha. El escenario tributario permite indicar si la vivienda está acogida a DFL2, su superficie construida, el tipo de titular y su orden por fecha de adquisición. Para inmuebles no exentos se puede usar una tasa efectiva estimada o evaluar el régimen opcional DFL2 del 5% que comienza en 2027.
+
+> Estos campos sirven para comparar escenarios y caja real; no reemplazan una revisión tributaria. La devolución de IVA del artículo 27 bis no es automática y puede ser incompatible con operaciones de arriendo exentas de IVA.
+
 ## 1. Configurar Supabase
 
 1. Abre el SQL Editor del proyecto de Supabase.

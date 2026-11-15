@@ -36,12 +36,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .sidebar-label { padding: 27px 9px 10px; color: var(--muted-2); font-size: 10px; font-weight: 750; letter-spacing: .13em; text-transform: uppercase; }
 .project-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
 .project-list button { display: grid; grid-template-columns: 32px minmax(0,1fr) 8px; align-items: center; gap: 10px; width: 100%; padding: 10px 9px; border: 1px solid transparent; border-radius: 11px; background: transparent; text-align: left; cursor: pointer; }
-.project-list button::before { content: ""; width: 30px; height: 30px; border-radius: 9px; background: linear-gradient(140deg, #213245, #152331); box-shadow: inset 0 0 0 1px #2c3c4f; }
 .project-list button:hover { background: rgb(255 255 255 / 3%); }
-.project-list button:has(+ *) {}
 .project-list button[aria-current="page"] { border-color: var(--line); background: var(--panel); }
+.project-list .project-icon { display: grid; place-items: center; width: 32px; height: 32px; margin: 0; border-radius: 9px; color: var(--muted); background: linear-gradient(140deg, #213245, #152331); box-shadow: inset 0 0 0 1px #2c3c4f; }
+.project-list .project-copy { display: block; min-width: 0; margin: 0; }
 .project-list strong { display: block; overflow: hidden; color: #dfe7ef; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.project-list span { display: block; margin-top: 3px; color: var(--muted-2); font-size: 10px; }
+.project-list small { display: block; margin-top: 3px; overflow: hidden; color: var(--muted-2); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .status-dot { width: 7px; height: 7px; margin: 0 !important; border-radius: 50%; background: var(--muted-2); }
 .status-dot.active { background: var(--teal); box-shadow: 0 0 0 4px rgb(32 211 155 / 9%); }
 .status-dot.planning { background: var(--amber); }
@@ -215,6 +215,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .field input, .field select, .field textarea { width: 100%; min-height: 41px; padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px; color: #e2e9ef; background: #0c141d; font-size: 12px; font-weight: 450; }
 .field textarea { resize: vertical; }
 .field input::placeholder, .field textarea::placeholder { color: #4f5e6e; }
+.toggle-field { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 9px; background: #0c141d; cursor: pointer; }
+.toggle-field.wide, .form-help.wide { grid-column: 1 / -1; }
+.toggle-field input { width: 18px; height: 18px; margin: 0; accent-color: var(--teal); }
+.toggle-field b, .toggle-field small { display: block; }
+.toggle-field b { color: #d8e1e8; font-size: 10px; }
+.toggle-field small { margin-top: 3px; color: var(--muted-2); font-size: 9px; font-weight: 450; }
+.form-help { margin: 0; padding: 11px 12px; border-left: 2px solid var(--amber); color: var(--muted); background: rgb(255 184 77 / 4%); font-size: 10px; line-height: 1.55; }
 .input-prefix, .input-suffix { display: grid; align-items: center; border: 1px solid var(--line); border-radius: 9px; background: #0c141d; }
 .input-prefix { grid-template-columns: auto minmax(0,1fr); }
 .input-suffix { grid-template-columns: minmax(0,1fr) auto; }
@@ -248,6 +255,12 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .acquisition-comparison > div { display: flex; align-items: center; justify-content: space-between; gap: 15px; min-height: 46px; border-bottom: 1px solid var(--line-soft); color: var(--muted); font-size: 11px; }
 .acquisition-comparison > div:last-child { border-bottom: 0; }
 .acquisition-comparison strong { color: #dbe4eb; font-size: 13px; }
+.acquisition-detail .acquisition-total { min-height: 54px; margin-top: 4px; border-top: 1px solid rgb(32 211 155 / 22%); border-bottom-color: rgb(32 211 155 / 22%); }
+.acquisition-detail .acquisition-total strong { color: var(--teal); font-size: 16px; }
+.tax-status { display: grid; gap: 4px; margin: 13px 20px 0; padding: 11px 12px; border: 1px solid rgb(255 184 77 / 18%); border-radius: 10px; color: var(--amber); background: rgb(255 184 77 / 5%); }
+.tax-status.eligible { border-color: rgb(32 211 155 / 20%); color: var(--teal); background: rgb(32 211 155 / 5%); }
+.tax-status strong { font-size: 10px; }
+.tax-status span { color: var(--muted); font-size: 9px; line-height: 1.5; }
 .members-panel, .transactions-panel { overflow: hidden; }
 .members-panel .panel-heading, .transactions-panel .panel-heading { padding-bottom: 16px; }
 .member-cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(300px,1fr)); gap: 1px; border-top: 1px solid var(--line-soft); background: var(--line-soft); }
@@ -297,8 +310,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .login-brand { display: none; }
   .app-shell { display: block; }
   .mobile-only { display: inline-grid; }
-  .project-sidebar { position: fixed; left: 0; top: 0; width: min(310px, 88vw); transform: translateX(-105%); box-shadow: 20px 0 70px rgb(0 0 0 / 40%); transition: transform .24s ease; }
+  .project-sidebar { position: fixed; left: 0; top: 0; width: min(340px, calc(100vw - 48px)); max-width: 100%; height: 100dvh; overflow-x: hidden; transform: translateX(-105%); box-shadow: 20px 0 70px rgb(0 0 0 / 40%); transition: transform .24s ease; }
   .project-sidebar.is-open { transform: translateX(0); }
+  .sidebar-backdrop { position: fixed; inset: 0; z-index: 29; display: block; width: 100%; height: 100%; padding: 0; border: 0; background: rgb(2 7 11 / 68%); backdrop-filter: blur(2px); }
   .topbar { min-height: 62px; padding: 10px 16px; gap: 10px; }
   .breadcrumbs span, .breadcrumbs b { display: none; }
   .topbar-actions .button.ghost { display: none; }
@@ -348,6 +362,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .member-share span { display: none; }
   .members-panel .button, .transactions-panel .button { padding: 0 10px; }
   .split-editor label input { width: 120px; }
+  .inline-empty { display: grid; grid-template-columns: auto minmax(0,1fr); align-items: start; gap: 10px; }
+  .inline-empty .text-button { grid-column: 2; justify-self: start; margin: 2px 0 0; padding-left: 0; text-align: left; }
+  .members-panel .panel-heading, .transactions-panel .panel-heading { align-items: flex-start; flex-wrap: wrap; }
+  .transactions-panel .panel-heading .button { width: 100%; }
+  .acquisition-card .panel-heading { align-items: flex-start; }
+  .acquisition-comparison { margin-right: 15px; margin-left: 15px; }
+  .tax-status { margin-right: 15px; margin-left: 15px; }
 }
 
 @media (display-mode: standalone) {
