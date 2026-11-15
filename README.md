@@ -1,61 +1,52 @@
-# Simulador de Inversión Inmobiliaria
+# VETA · Inversión inmobiliaria
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.x-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Demo](https://img.shields.io/badge/Demo-Live-brightgreen?logo=streamlit)](https://simulador-inversion-inmobiliaria-hzmgqovfpwqsriekxk5goc.streamlit.app/)
+Este repositorio contiene dos aplicaciones complementarias para evaluar y controlar inversiones inmobiliarias:
 
-Herramienta interactiva para evaluar y comparar inversiones en departamentos de la Región Metropolitana de Chile versus alternativas financieras (ETF), desarrollada en Python con Streamlit.
+| Carpeta | Aplicación | Uso principal |
+|---|---|---|
+| [`streamlit/`](streamlit/) | Simulador financiero en Python | Evaluar una compra, proyectar flujos y comparar escenarios antes de invertir. |
+| [`html/`](html/) | VETA, aplicación web Next.js | Guardar proyectos y comparar mensualmente la estimación con los resultados reales. |
 
-## Demo
+## Aplicación web
 
-**[Ver app en vivo →](https://simulador-inversion-inmobiliaria-hzmgqovfpwqsriekxk5goc.streamlit.app/)**
+VETA está preparada para desplegarse en Vercel y usa Supabase para autenticación y datos. Permite:
 
-## Funcionalidades
+- mantener varios departamentos o proyectos;
+- editar todos los supuestos financieros;
+- registrar arriendo, dividendo, vacancia, administración, gastos comunes, contribuciones, seguro, mantenciones, arreglos y otros desembolsos;
+- revisar flujo estimado versus real, diferencias y acumulados;
+- proyectar el resultado de venta;
+- exportar el historial a CSV para abrirlo en Google Sheets;
+- usar una interfaz responsive desde computador o teléfono.
 
-| Módulo | Descripción |
-|---|---|
-| Dashboard KPIs | TIR, múltiplo del capital, CAGR, Cap Rate y ganancia neta en tiempo real |
-| Proyección de flujos | Gráfico de amortización a 30 años y detalle trimestral de caja |
-| Contribuciones SII | Monto anual real o estimación desde avalúo fiscal, con vencimientos por trimestre |
-| Beneficio IVA vivienda nueva | Devolución opcional por porcentaje o monto exacto, sin reducir el crédito hipotecario |
-| Análisis de sensibilidad | Impacto de plusvalía y tasa hipotecaria |
-| Comparador de propiedades | Evalúa hasta 5 propiedades en paralelo |
-| Comparación ETF | Pie inicial independiente y aportes mensuales por diferencia dividendo−arriendo |
-| Exportación PDF | Reporte descargable con todos los indicadores |
-| Escenarios rápidos | Presets Conservador, Base y Optimista |
-| Guía de indicadores | Explicación de cada métrica inmobiliaria |
-| Diccionario metodológico | Definiciones, fórmulas, supuestos y limitaciones del modelo |
+Consulta la [guía de la aplicación web](html/README.md) para configurar Supabase y Vercel.
 
-## Instalación
+## Simulador Streamlit
 
 ```bash
-# Clonar el repositorio
-git clone https://github.com/AloTapia21/Simulador-inversion-inmobiliaria.git
-cd Simulador-inversion-inmobiliaria
-
-# Crear entorno virtual
+cd streamlit
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-
-# Instalar dependencias
 pip install -r requirements.txt
-
-# Ejecutar la app
 streamlit run "Simulardor inversion.py"
 ```
 
-## Tecnologías
+La metodología y las funciones del simulador están documentadas en [`streamlit/README.md`](streamlit/README.md).
 
-- [Python](https://www.python.org/) — lenguaje base
-- [Streamlit](https://streamlit.io/) — framework de la interfaz web
-- [Plotly](https://plotly.com/python/) — gráficos interactivos
-- [ReportLab](https://www.reportlab.com/) — generación de PDF
+## Verificación
 
-## Autor
+```bash
+# Web
+cd html
+npm ci
+npm run lint
+npm run typecheck
+npm run build
 
-**Alonso Tapia D.**
+# Motor financiero
+cd ../streamlit
+python -m unittest discover -s tests -v
+```
 
 ## Licencia
 
-Distribuido bajo la licencia MIT. Ver [LICENSE](LICENSE) para más información.
+MIT. Consulta [LICENSE](LICENSE).

@@ -1,0 +1,18 @@
+{
+  "name": "VETA · Control inmobiliario",
+  "short_name": "VETA",
+  "description": "Seguimiento mensual de inversiones inmobiliarias, estimado versus real.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#081b1d",
+  "theme_color": "#081b1d",
+  "lang": "es-CL",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

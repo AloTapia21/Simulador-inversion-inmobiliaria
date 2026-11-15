@@ -19,9 +19,11 @@ def parametros_base(**cambios):
         "vacancia": 0.08,
         "adm": 0.08,
         "gcom": 100_000,
+        "gcom_gr": 0.0,
         "contrib": 320_000,
         "contrib_gr": 0.03,
         "seguro": 120_000,
+        "seguro_gr": 0.0,
         "mant": 0.005,
         "reserva": 0.05,
         "pie": 0.20,
@@ -179,6 +181,38 @@ class SimulacionTests(unittest.TestCase):
                 valores[anio] for valores in resultado["gastos_detalle"].values()
             )
             self.assertAlmostEqual(detalle_anual, resultado["gastos"][anio])
+
+    def test_costos_fijos_crecen_con_su_reajuste(self):
+        resultado = compute_simulation(
+            parametros_base(gcom=100_000, gcom_gr=0.05, seguro=120_000, seguro_gr=0.10)
+        )
+
+        self.assertAlmostEqual(resultado["gastos_detalle"]["gastos_comunes"][1], 1_200_000)
+        self.assertAlmostEqual(resultado["gastos_detalle"]["gastos_comunes"][2], 1_260_000)
+        self.assertAlmostEqual(resultado["gastos_detalle"]["seguro"][1], 120_000)
+        self.assertAlmostEqual(resultado["gastos_detalle"]["seguro"][2], 132_000)
+
+    def test_remodelacion_se_cobra_solo_en_el_anio_configurado(self):
+        resultado = compute_simulation(parametros_base(uf=40_000, remodelaciones={5: 80}))
+
+        self.assertEqual(resultado["gastos_detalle"]["remodelaciones"][5], 3_200_000)
+        self.assertEqual(resultado["gastos_detalle"]["remodelaciones"][4], 0)
+        self.assertEqual(resultado["gastos_detalle"]["remodelaciones"][6], 0)
+
+    def test_detalle_trimestral_reconcilia_cada_componente(self):
+        resultado = compute_simulation(parametros_base())
+        claves_gasto = (
+            "vacancia", "administracion", "reserva", "gastos_comunes",
+            "contribuciones", "seguro", "mantencion", "remodelaciones",
+        )
+
+        for trimestre in resultado["flujos_trimestrales"][5]:
+            gastos = sum(trimestre[clave] for clave in claves_gasto)
+            self.assertAlmostEqual(gastos, trimestre["gastos_operacionales"])
+            self.assertAlmostEqual(
+                trimestre["arriendo"] - gastos - trimestre["dividendos"],
+                trimestre["flujo_neto"],
+            )
 
     def test_contribuciones_se_distribuyen_en_sus_trimestres_de_vencimiento(self):
         resultado = compute_simulation(parametros_base())

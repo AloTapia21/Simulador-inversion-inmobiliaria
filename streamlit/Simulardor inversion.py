@@ -688,6 +688,9 @@ with st.sidebar:
     vacancia = st.slider("Vacancia anual", 0.0, 20.0, float(ev['vac']), 1.0, format="%.0f%%") / 100
     adm      = st.slider("Comisión administradora", 0.0, 15.0, 8.0, 1.0, format="%.0f%%") / 100
     gcom     = st.number_input("Gastos comunes (CLP/mes)", value=100_000, min_value=0, step=5_000, format="%d")
+    gcom_gr  = st.slider(
+        "Reajuste anual gastos comunes", 0.0, 10.0, 3.0, 0.5, format="%.1f%%"
+    ) / 100
     modo_contrib = st.selectbox(
         "Contribuciones SII",
         ["Monto anual conocido", "Estimar desde avalúo fiscal"],
@@ -724,8 +727,42 @@ with st.sidebar:
     ) / 100
     st.caption("Vencimientos ordinarios: abril, junio, septiembre y noviembre. No incluye derechos de aseo.")
     seguro   = st.number_input("Seguro hipotecario (CLP/año)", value=120_000, min_value=0, step=5_000, format="%d")
+    seguro_gr = st.slider(
+        "Reajuste anual seguro", 0.0, 10.0, 3.0, 0.5, format="%.1f%%"
+    ) / 100
     mant     = st.slider("Mantención anual (% valor)", 0.1, 2.0, 0.5, 0.1, format="%.1f%%") / 100
     reserva  = st.slider("Reserva contingencias (% arr.)", 0.0, 10.0, 5.0, 1.0, format="%.0f%%") / 100
+
+    remos = {}
+    with st.expander("Remodelaciones extraordinarias", expanded=False):
+        incluir_remodelaciones = st.checkbox(
+            "Incluir remodelaciones",
+            value=True,
+            help="Cada monto se descuenta por completo del flujo del año indicado.",
+        )
+        if incluir_remodelaciones:
+            st.caption("Edita el año y el monto en UF. Usa 0 UF para omitir un evento.")
+            remodelaciones_base = [(5, 80), (10, 150), (15, 200), (20, 250), (25, 200)]
+            for indice, (anio_base, monto_base) in enumerate(remodelaciones_base, start=1):
+                col_anio, col_monto = st.columns(2)
+                with col_anio:
+                    anio_remo = st.number_input(
+                        f"Año #{indice}", 1, 30, anio_base, 1, key=f"remo_anio_{indice}"
+                    )
+                with col_monto:
+                    monto_remo = st.number_input(
+                        f"Monto UF #{indice}", 0, 2_000, monto_base, 10, key=f"remo_monto_{indice}"
+                    )
+                if monto_remo > 0:
+                    remos[anio_remo] = remos.get(anio_remo, 0) + monto_remo
+
+            calendario_remos = " · ".join(
+                f"año {anio}: {monto:g} UF ({fmt_clp(monto * uf_val)})"
+                for anio, monto in sorted(remos.items())
+            )
+            st.caption(calendario_remos or "Sin remodelaciones configuradas.")
+        else:
+            st.caption("No se descontarán remodelaciones del flujo.")
 
     st.divider()
     st.markdown('<div class="section-title">Financiamiento</div>', unsafe_allow_html=True)
@@ -805,14 +842,12 @@ with st.sidebar:
     st.markdown('<div class="section-title">Año de Análisis de Venta</div>', unsafe_allow_html=True)
     yr_venta = st.slider("¿En qué año planeas vender?", 1, 30, 10)
 
-    remos = {5: 80, 10: 150, 15: 200, 20: 250, 25: 200}
-
-
 # ─── COMPUTE ─────────────────────────────────────────────────────────────────
 params = dict(
     uf=uf_val, val_uf=dep_uf, arriendo_uf=arr_uf, rent_gr=rent_gr,
-    vacancia=vacancia, adm=adm, gcom=gcom, contrib=contrib, contrib_gr=contrib_gr,
-    seguro=seguro, mant=mant, reserva=reserva,
+    vacancia=vacancia, adm=adm, gcom=gcom, gcom_gr=gcom_gr,
+    contrib=contrib, contrib_gr=contrib_gr,
+    seguro=seguro, seguro_gr=seguro_gr, mant=mant, reserva=reserva,
     pie=pie_pct, tasa=tasa_h, plazo=plazo,
     gastos_cierre=gc_pct, costo_venta=cv_pct, devolucion_iva=devolucion_iva,
     plusvalia=plusvalia, etf_ret=etf_ret, etf_pie=etf_pie,
@@ -1007,9 +1042,15 @@ with tab1:
             "vacancia": arriendos_tot * params["vacancia"],
             "administracion": arriendos_tot * params["adm"],
             "reserva": arriendos_tot * params["reserva"],
-            "gastos_comunes": params["gcom"] * 12 * yr_venta,
+            "gastos_comunes": sum(
+                params["gcom"] * 12 * (1 + params.get("gcom_gr", 0.0)) ** (anio - 1)
+                for anio in range(1, yr_venta + 1)
+            ),
             "contribuciones": sum(R['contribuciones_anuales'][1:yr_venta + 1]),
-            "seguro": params["seguro"] * yr_venta,
+            "seguro": sum(
+                params["seguro"] * (1 + params.get("seguro_gr", 0.0)) ** (anio - 1)
+                for anio in range(1, yr_venta + 1)
+            ),
             "mantencion": sum(R['val_d'][:yr_venta]) * params["mant"],
             "remodelaciones": params["uf"] * sum(
                 monto for anio, monto in params["remodelaciones"].items() if anio <= yr_venta
@@ -1313,11 +1354,17 @@ with tab2:
     for trimestre in detalle_trimestral:
         filas_trimestre.append({
             "Periodo": trimestre["periodo"],
-            "Arriendo bruto": fmt_clp(trimestre["arriendo"]),
-            "Otros gastos": fmt_clp(trimestre["gastos_sin_contribuciones"]),
-            "Contribuciones": fmt_clp(trimestre["contribuciones"]),
-            "Dividendos": fmt_clp(trimestre["dividendos"]),
-            "Flujo neto": fmt_clp(trimestre["flujo_neto"]),
+            "+ Arriendo": fmt_clp(trimestre["arriendo"]),
+            "− Vacancia": fmt_clp(trimestre["vacancia"]),
+            "− Administración": fmt_clp(trimestre["administracion"]),
+            "− Reserva": fmt_clp(trimestre["reserva"]),
+            "− Gastos comunes": fmt_clp(trimestre["gastos_comunes"]),
+            "− Contribuciones": fmt_clp(trimestre["contribuciones"]),
+            "− Seguro": fmt_clp(trimestre["seguro"]),
+            "− Mantención": fmt_clp(trimestre["mantencion"]),
+            "− Remodelaciones": fmt_clp(trimestre["remodelaciones"]),
+            "− Dividendos": fmt_clp(trimestre["dividendos"]),
+            "= Flujo neto": fmt_clp(trimestre["flujo_neto"]),
         })
     hdr_trim = "<tr>" + "".join(f"<th>{k}</th>" for k in filas_trimestre[0]) + "</tr>"
     body_trim = "".join(
@@ -1331,7 +1378,8 @@ with tab2:
     flujo_trimestral_total = sum(item["flujo_neto"] for item in detalle_trimestral)
     st.caption(
         f"Total del año {anio_trimestral}: {fmt_clp(flujo_trimestral_total)} · "
-        f"Contribuciones: {fmt_clp(R['contribuciones_anuales'][anio_trimestral])}"
+        f"promedio mensual: {fmt_clp(flujo_trimestral_total / 12)} · "
+        f"gastos operacionales: {fmt_clp(R['gastos'][anio_trimestral])}"
     )
 
     # ── TABLA ──
@@ -1350,8 +1398,18 @@ with tab2:
             "Año": y, "Valor Depto": fmt_clp(R['val_d'][y]),
             "Devolución IVA": fmt_clp(R['devolucion_iva']) if y == 0 else "—",
             "Arriendo Bruto": fmt_clp(R['arr_b'][y]) if y > 0 else "—",
+            "Vacancia": fmt_clp(R['gastos_detalle']['vacancia'][y]) if y > 0 else "—",
+            "Administración": fmt_clp(R['gastos_detalle']['administracion'][y]) if y > 0 else "—",
+            "Reserva": fmt_clp(R['gastos_detalle']['reserva'][y]) if y > 0 else "—",
+            "Gastos comunes": fmt_clp(R['gastos_detalle']['gastos_comunes'][y]) if y > 0 else "—",
+            "Contribuciones": fmt_clp(R['gastos_detalle']['contribuciones'][y]) if y > 0 else "—",
+            "Seguro": fmt_clp(R['gastos_detalle']['seguro'][y]) if y > 0 else "—",
+            "Mantención": fmt_clp(R['gastos_detalle']['mantencion'][y]) if y > 0 else "—",
+            "Remodelaciones": fmt_clp(R['gastos_detalle']['remodelaciones'][y]) if y > 0 else "—",
             "Gastos Op.": fmt_clp(R['gastos'][y]) if y > 0 else "—",
+            "Dividendos": fmt_clp(R['pagos_hipoteca'][y]) if y > 0 else "—",
             "Flujo Neto": fmt_clp(R['flujo_n'][y]),
+            "Promedio mensual": fmt_clp(R['flujo_n'][y] / 12) if y > 0 else "—",
             "Flujo Acum.": fmt_clp(R['flujo_a'][y]),
             "Saldo Hipoteca": fmt_clp(R['saldo_h'][y]),
             "Gan. Neta Venta": fmt_clp(g) if y > 0 else "—",
@@ -1566,6 +1624,10 @@ with tab5:
              "Porcentaje del arriendo anual que se descuenta por periodos sin ingresos. Debe ajustarse según evidencia de la propiedad y su mercado; impacta directamente el flujo."),
             ("📈 Crecimiento arriendo", f"Usas: {rent_gr*100:.1f}%/año",
              "Aumento nominal anual supuesto para el arriendo. Afecta cuándo el flujo se vuelve positivo y debe probarse con escenarios conservadores."),
+            ("🧾 Gastos operacionales", "Porcentaje y monto fijo",
+             f"Vacancia, administración y reserva se calculan sobre el arriendo. La mantención se calcula sobre el valor del departamento al inicio de cada año. Gastos comunes y seguro parten como montos fijos y se reajustan {gcom_gr*100:.1f}% y {seguro_gr*100:.1f}% al año, respectivamente."),
+            ("🛠️ Remodelaciones", f"{len(remos)} evento(s)" if remos else "No incluidas",
+             "Son desembolsos extraordinarios en UF que se descuentan completos en el año elegido. Por eso el flujo baja ese año y rebota al siguiente; puedes cambiar año y monto o desactivarlas desde el panel lateral."),
             ("🏦 Tasa hipotecaria", f"Usas: {tasa_h*100:.2f}% anual",
              f"Define tu dividendo mensual de {fmt_clp(R['div_m'])}. A mayor tasa, mayor flujo negativo los primeros años. Negociar la tasa puede cambiar significativamente el resultado."),
             ("📈 Inversión inicial ETF", fmt_clp(R['etf_capital_inicial']),

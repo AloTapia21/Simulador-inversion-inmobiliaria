@@ -154,6 +154,16 @@ def compute_simulation(p):
     if not 0 <= devolucion_iva <= val_clp:
         raise ValueError("La devolución de IVA debe estar entre cero y el valor del departamento")
 
+    try:
+        remodelaciones = {
+            int(anio): float(monto)
+            for anio, monto in p.get("remodelaciones", {}).items()
+        }
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError("Las remodelaciones deben indicar año y monto numéricos") from exc
+    if any(not 1 <= anio <= HORIZONTE_ANIOS or monto < 0 for anio, monto in remodelaciones.items()):
+        raise ValueError("Las remodelaciones deben tener un año válido y un monto no negativo")
+
     pie_clp = val_clp * p["pie"]
     cierre = val_clp * p["gastos_cierre"]
     cap_total_bruto = pie_clp + cierre
@@ -222,13 +232,13 @@ def compute_simulation(p):
         vac_loss = rent_anual * p["vacancia"]
         adm_loss = rent_anual * p["adm"]
         res_loss = rent_anual * p["reserva"]
-        gcom_anual = p["gcom"] * 12
+        gcom_anual = p["gcom"] * 12 * (1 + p.get("gcom_gr", 0.0)) ** (yr - 1)
         cont_anual = p["contrib"] * (1 + p.get("contrib_gr", 0.0)) ** (yr - 1)
         contribuciones_anuales.append(cont_anual)
-        seg_anual = p["seguro"]
+        seg_anual = p["seguro"] * (1 + p.get("seguro_gr", 0.0)) ** (yr - 1)
         valor_inicio_anio = val_clp * (1 + p["plusvalia"]) ** (yr - 1)
         mant_anual = valor_inicio_anio * p["mant"]
-        remo = uf * p["remodelaciones"].get(yr, 0)
+        remo = uf * remodelaciones.get(yr, 0)
         gasto = vac_loss + adm_loss + res_loss + gcom_anual + cont_anual + seg_anual + mant_anual + remo
         gastos.append(gasto)
         gastos_detalle["vacancia"].append(vac_loss)
@@ -250,7 +260,6 @@ def compute_simulation(p):
 
         # Flujo por trimestre calendario. Las cuotas SII vencen en abril,
         # junio, septiembre y noviembre; por eso Q2 concentra dos cuotas.
-        gasto_recurrente_sin_contrib = gasto - cont_anual - remo
         cuota_contribucion = cont_anual / 4
         contrib_por_trimestre = (0.0, cuota_contribucion * 2, cuota_contribucion, cuota_contribucion)
         etiquetas_trimestre = ("Ene-Mar", "Abr-Jun", "Jul-Sep", "Oct-Dic")
@@ -259,18 +268,28 @@ def compute_simulation(p):
             mes_inicial = (yr - 1) * 12 + trimestre * 3
             deuda_trimestre = sum(pagos_mensuales[mes_inicial:mes_inicial + 3])
             remodelacion_trimestre = remo if trimestre == 3 else 0.0
-            gasto_trimestre = gasto_recurrente_sin_contrib / 4 + remodelacion_trimestre
+            detalle_trimestre = {
+                "vacancia": vac_loss / 4,
+                "administracion": adm_loss / 4,
+                "reserva": res_loss / 4,
+                "gastos_comunes": gcom_anual / 4,
+                "contribuciones": contrib_por_trimestre[trimestre],
+                "seguro": seg_anual / 4,
+                "mantencion": mant_anual / 4,
+                "remodelaciones": remodelacion_trimestre,
+            }
+            gasto_trimestre = sum(detalle_trimestre.values())
             flujo_trimestre = (
                 rent_anual / 4
                 - gasto_trimestre
-                - contrib_por_trimestre[trimestre]
                 - deuda_trimestre
             )
             flujo_anual_trimestral.append({
                 "periodo": etiquetas_trimestre[trimestre],
                 "arriendo": rent_anual / 4,
-                "gastos_sin_contribuciones": gasto_trimestre,
-                "contribuciones": contrib_por_trimestre[trimestre],
+                **detalle_trimestre,
+                "gastos_sin_contribuciones": gasto_trimestre - detalle_trimestre["contribuciones"],
+                "gastos_operacionales": gasto_trimestre,
                 "dividendos": deuda_trimestre,
                 "flujo_neto": flujo_trimestre,
             })
