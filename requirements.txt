@@ -1,0 +1,2 @@
+# Compatibilidad con despliegues de Streamlit Cloud cuyo entrypoint está en la raíz.
+-r streamlit/requirements.txt

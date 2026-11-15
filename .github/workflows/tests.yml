@@ -13,7 +13,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Check Python syntax
-        run: python -m compileall -q streamlit
+        run: python -m compileall -q streamlit "Simulardor inversion.py"
       - name: Run unit tests
         run: python -m unittest discover -s streamlit/tests -v
 

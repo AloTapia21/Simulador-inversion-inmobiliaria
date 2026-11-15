@@ -28,6 +28,10 @@ Consulta la [guía de la aplicación web](html/README.md) para configurar Supaba
 
 ## Simulador Streamlit
 
+La ruta recomendada para un despliegue nuevo en Streamlit Community Cloud es
+`streamlit/Simulardor inversion.py`. El repositorio conserva además un lanzador
+compatible en la raíz para que los despliegues antiguos sigan funcionando.
+
 ```bash
 cd streamlit
 python -m venv .venv
