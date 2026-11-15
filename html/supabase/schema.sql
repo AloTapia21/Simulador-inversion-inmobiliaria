@@ -259,7 +259,10 @@ grant select, insert, update, delete on public.investment_transaction_splits to 
 
 drop policy if exists "projects_select_own" on public.investment_projects;
 create policy "projects_select_own" on public.investment_projects
-  for select to authenticated using ((select private.has_investment_access(id)));
+  for select to authenticated using (
+    owner_id = (select auth.uid())::text
+    or (select private.has_investment_access(id))
+  );
 
 drop policy if exists "projects_insert_own" on public.investment_projects;
 create policy "projects_insert_own" on public.investment_projects
