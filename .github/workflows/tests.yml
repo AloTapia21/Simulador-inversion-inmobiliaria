@@ -12,10 +12,31 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Install Streamlit dependencies
+        run: python -m pip install -r requirements.txt
       - name: Check Python syntax
         run: python -m compileall -q streamlit "Simulardor inversion.py"
       - name: Run unit tests
-        run: python -m unittest discover -s streamlit/tests -v
+        working-directory: streamlit
+        run: python -m unittest discover -s tests -v
+      - name: Smoke test legacy Streamlit entrypoint
+        shell: bash
+        run: |
+          streamlit run "Simulardor inversion.py" \
+            --server.headless=true \
+            --server.port=8501 > /tmp/streamlit.log 2>&1 &
+          app_pid=$!
+          trap 'kill "$app_pid" 2>/dev/null || true' EXIT
+
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8501/_stcore/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          cat /tmp/streamlit.log
+          exit 1
 
   web:
     runs-on: ubuntu-latest
