@@ -74,9 +74,14 @@ create table if not exists public.investment_monthly_records (
 create index if not exists investment_records_owner_project_idx
   on public.investment_monthly_records (owner_id, project_id, period desc);
 
+create index if not exists investment_records_project_idx
+  on public.investment_monthly_records (project_id);
+
 alter table public.investment_projects enable row level security;
 alter table public.investment_monthly_records enable row level security;
 
+revoke all on public.investment_projects from anon, authenticated;
+revoke all on public.investment_monthly_records from anon, authenticated;
 grant select, insert, update, delete on public.investment_projects to authenticated;
 grant select, insert, update, delete on public.investment_monthly_records to authenticated;
 
@@ -116,7 +121,13 @@ drop policy if exists "records_update_own" on public.investment_monthly_records;
 create policy "records_update_own" on public.investment_monthly_records
   for update to authenticated
   using (owner_id = (select auth.uid())::text)
-  with check (owner_id = (select auth.uid())::text);
+  with check (
+    owner_id = (select auth.uid())::text
+    and exists (
+      select 1 from public.investment_projects p
+      where p.id = project_id and p.owner_id = (select auth.uid())::text
+    )
+  );
 
 drop policy if exists "records_delete_own" on public.investment_monthly_records;
 create policy "records_delete_own" on public.investment_monthly_records
