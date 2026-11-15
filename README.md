@@ -15,6 +15,9 @@ VETA está preparada para desplegarse en Vercel y usa Supabase para autenticaci�
 - editar todos los supuestos financieros;
 - registrar arriendo, dividendo, vacancia, administración, gastos comunes, contribuciones, seguro, mantenciones, arreglos y otros desembolsos;
 - revisar flujo estimado versus real, diferencias y acumulados;
+- compartir una inversión con copropietarios y asignar cada pago o ingreso a una o varias personas;
+- registrar el monto CLP y la UF histórica de pie, dividendos, arriendos y demás movimientos;
+- estimar valor actual, deuda, patrimonio y TIR con el motor financiero;
 - proyectar el resultado de venta;
 - exportar el historial a CSV para abrirlo en Google Sheets;
 - usar una interfaz responsive desde computador o teléfono.
@@ -40,6 +43,7 @@ cd html
 npm ci
 npm run lint
 npm run typecheck
+npm test
 npm run build
 
 # Motor financiero

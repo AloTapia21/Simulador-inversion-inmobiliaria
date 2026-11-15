@@ -19,10 +19,20 @@ Cada proyecto conserva los supuestos originales de compra y financiamiento. Lueg
 
 El tablero calcula el flujo real, el flujo estimado, la diferencia, el desembolso de bolsillo y los acumulados. También incluye una proyección anual y exportación CSV compatible con Google Sheets.
 
+La vista **Real y socios** permite compartir el proyecto con otra cuenta, definir porcentajes de participación y distribuir cada movimiento con montos exactos. Cada movimiento guarda el valor UF de su fecha, por lo que los aportes también se pueden comparar en UF y en pesos equivalentes de hoy.
+
+El valor actual distingue tres referencias:
+
+- valor de compra reajustado por la UF actual;
+- estimación del motor en UF, aplicando la plusvalía configurada;
+- valor de mercado manual, para usar una tasación o comparables cuando existan.
+
+La UF se consulta desde `mindicador.cl` y siempre queda editable como respaldo.
+
 ## 1. Configurar Supabase
 
 1. Abre el SQL Editor del proyecto de Supabase.
-2. Ejecuta completo [`supabase/schema.sql`](supabase/schema.sql). El script crea tablas, índices y políticas RLS para que cada usuario sólo pueda acceder a sus propios datos.
+2. Ejecuta completo [`supabase/schema.sql`](supabase/schema.sql). El script crea tablas, índices y políticas RLS para que sólo el propietario y los participantes invitados puedan acceder a cada inversión.
 3. En **Authentication → URL Configuration**, agrega la URL de producción de Vercel como `Site URL` y como redirect permitido. Para desarrollo agrega `http://localhost:3000/**`.
 4. En **Authentication → Email Templates → Confirm signup**, usa una URL de confirmación compatible con SSR:
 
@@ -57,6 +67,7 @@ Verificaciones disponibles:
 ```bash
 npm run typecheck
 npm run lint
+npm test
 npm run build
 ```
 

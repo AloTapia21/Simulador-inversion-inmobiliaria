@@ -30,6 +30,19 @@ export async function POST(request: NextRequest) {
       .select("*")
       .single();
     if (error) throw error;
+    const { error: memberError } = await auth.supabase.from("investment_project_members").insert({
+      project_id: data.id,
+      user_id: auth.ownerId,
+      invited_email: auth.email || null,
+      display_name: auth.displayName,
+      role: "owner",
+      ownership_percentage: 100,
+      created_by: auth.ownerId,
+    });
+    if (memberError) {
+      await auth.supabase.from("investment_projects").delete().eq("id", data.id);
+      throw memberError;
+    }
     return NextResponse.json({ project: coerceProject(data as Project) }, { status: 201 });
   } catch (error) {
     return apiError(error);

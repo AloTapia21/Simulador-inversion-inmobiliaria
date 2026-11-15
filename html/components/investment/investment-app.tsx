@@ -32,6 +32,7 @@ import {
   Settings2,
   TrendingDown,
   TrendingUp,
+  Users,
   WalletCards,
   X,
 } from "lucide-react";
@@ -47,6 +48,7 @@ import {
   monthlyEstimate,
   normalizePeriod,
   number,
+  projectedInvestmentIrr,
   recordCashflow,
   recordExpenses,
   type MonthlyRecord,
@@ -54,9 +56,10 @@ import {
   type ProjectDraft,
   type RecordDraft,
 } from "@/lib/investment";
+import { CollaborationView } from "./collaboration-view";
 
 type StorageMode = "checking" | "cloud" | "local";
-type Tab = "summary" | "monthly" | "history" | "projection" | "assumptions";
+type Tab = "summary" | "actual" | "monthly" | "history" | "projection" | "assumptions";
 
 const PROJECTS_KEY = "inversion-inmobiliaria:projects:v1";
 const RECORDS_KEY = "inversion-inmobiliaria:records:v1";
@@ -305,6 +308,12 @@ export function InvestmentApp({ displayName, authenticated = false }: { displayN
   const vacancyDays = records.reduce((sum, record) => sum + number(record.vacancy_days), 0);
   const plannedSale = selected ? projection[Math.max(0, Math.min(29, selected.planned_sale_year - 1))] : null;
 
+  function updateProjectInState(project: Project) {
+    const next = projects.map((item) => item.id === project.id ? project : item);
+    setProjects(next);
+    if (mode === "local") writeLocal(PROJECTS_KEY, next);
+  }
+
   return (
     <div className="app-shell">
       <aside className={`project-sidebar ${sidebarOpen ? "is-open" : ""}`}>
@@ -374,6 +383,7 @@ export function InvestmentApp({ displayName, authenticated = false }: { displayN
 
             <nav className="tabs" aria-label="Vistas del proyecto">
               <TabButton active={tab === "summary"} onClick={() => setTab("summary")} icon={<BarChart3 size={16} />}>Resumen</TabButton>
+              <TabButton active={tab === "actual"} onClick={() => setTab("actual")} icon={<Users size={16} />}>Real y socios</TabButton>
               <TabButton active={tab === "monthly"} onClick={() => setTab("monthly")} icon={<ReceiptText size={16} />}>Registrar</TabButton>
               <TabButton active={tab === "history"} onClick={() => setTab("history")} icon={<CalendarDays size={16} />}>Historial</TabButton>
               <TabButton active={tab === "projection"} onClick={() => setTab("projection")} icon={<TrendingUp size={16} />}>Proyección</TabButton>
@@ -393,6 +403,15 @@ export function InvestmentApp({ displayName, authenticated = false }: { displayN
                 plannedSale={plannedSale}
                 onRegister={openNewRecord}
                 onEditRecord={openExistingRecord}
+              />
+            )}
+            {tab === "actual" && (
+              <CollaborationView
+                key={selected.id}
+                project={selected}
+                cloud={mode === "cloud"}
+                onProjectUpdated={updateProjectInState}
+                onNotice={setNotice}
               />
             )}
             {tab === "monthly" && (
@@ -537,15 +556,16 @@ function HistoryView({ project, records, onEdit, onExport }: { project: Project;
 
 function ProjectionView({ project, projection }: { project: Project; projection: ReturnType<typeof buildAnnualProjection> }) {
   const selectedYear = projection[Math.max(0, Math.min(29, project.planned_sale_year - 1))];
+  const projectedIrr = projectedInvestmentIrr(project, project.planned_sale_year);
   return (
     <>
       <section className="projection-hero">
         <div><span className="panel-kicker">Plan financiero</span><h2>Si vendes en el año {project.planned_sale_year}</h2><p>Valor, deuda y operación proyectados con los supuestos guardados.</p></div>
-        <div className="projection-result"><span>Resultado neto</span><strong>{formatClp(selectedYear.netResult, true)}</strong></div>
+        <div className="projection-result"><span>Resultado neto · TIR {projectedIrr === null ? "—" : formatPercent(projectedIrr)}</span><strong>{formatClp(selectedYear.netResult, true)}</strong></div>
       </section>
       <section className="panel records-panel">
-        <div className="table-scroll"><table className="data-table"><thead><tr><th>Año</th><th>Valor depto</th><th>Saldo deuda</th><th>Arriendo anual</th><th>Gastos op.</th><th>Dividendos</th><th>Flujo anual</th><th>Resultado si vende</th></tr></thead><tbody>
-          {projection.map((row) => <tr key={row.year} className={row.year === project.planned_sale_year ? "highlight-row" : ""}><td><b>{row.year}</b></td><td>{formatClp(row.value, true)}</td><td>{formatClp(row.balance, true)}</td><td>{formatClp(row.annualRent, true)}</td><td>{formatClp(row.operatingExpenses, true)}</td><td>{formatClp(row.mortgage, true)}</td><td className={row.cashflow >= 0 ? "positive-text" : "negative-text"}>{formatClp(row.cashflow, true)}</td><td><b>{formatClp(row.netResult, true)}</b></td></tr>)}
+        <div className="table-scroll"><table className="data-table"><thead><tr><th>Año</th><th>Valor depto</th><th>Saldo deuda</th><th>Capital pagado</th><th>Intereses</th><th>Arriendo anual</th><th>Gastos op.</th><th>Dividendos</th><th>Flujo anual</th><th>Resultado si vende</th></tr></thead><tbody>
+          {projection.map((row) => <tr key={row.year} className={row.year === project.planned_sale_year ? "highlight-row" : ""}><td><b>{row.year}</b></td><td>{formatClp(row.value, true)}</td><td>{formatClp(row.balance, true)}</td><td>{formatClp(row.principalPaid, true)}</td><td>{formatClp(row.interestPaid, true)}</td><td>{formatClp(row.annualRent, true)}</td><td>{formatClp(row.operatingExpenses, true)}</td><td>{formatClp(row.mortgage, true)}</td><td className={row.cashflow >= 0 ? "positive-text" : "negative-text"}>{formatClp(row.cashflow, true)}</td><td><b>{formatClp(row.netResult, true)}</b></td></tr>)}
         </tbody></table></div>
       </section>
     </>
@@ -573,7 +593,7 @@ function ProjectDialog({ draft, setDraft, onClose, onSubmit, busy, editing }: { 
   return <Modal title={editing ? "Editar supuestos" : "Nuevo proyecto inmobiliario"} subtitle="Guarda el escenario base que usarás para comparar cada mes." onClose={onClose}>
     <form onSubmit={onSubmit} className="modal-form">
       <FormSection title="Identificación"><div className="form-grid"><Field label="Nombre del proyecto" wide><input required value={draft.name} onChange={(e) => set("name", e.target.value)} placeholder="Ej. Departamento Ñuñoa" /></Field><Field label="Dirección" wide><input value={draft.address} onChange={(e) => set("address", e.target.value)} placeholder="Calle, comuna" /></Field><Field label="Fecha de compra"><input type="date" value={draft.purchase_date} onChange={(e) => set("purchase_date", e.target.value)} /></Field><Field label="Estado"><select value={draft.status} onChange={(e) => set("status", e.target.value as Project["status"])}><option value="active">En operación</option><option value="planning">En evaluación</option><option value="sold">Vendido</option></select></Field></div></FormSection>
-      <FormSection title="Compra y crédito"><div className="form-grid"><MoneyField label="Valor UF" value={draft.uf_value} onChange={(value) => recalculateValue(value, draft.property_value_uf)} /><NumberField label="Valor propiedad (UF)" value={draft.property_value_uf} onChange={(value) => recalculateValue(draft.uf_value, value)} /><MoneyField label="Valor propiedad (CLP)" value={draft.property_value_clp} onChange={(value) => set("property_value_clp", value)} /><MoneyField label="Pie pagado" value={draft.down_payment_clp} onChange={(value) => set("down_payment_clp", value)} /><MoneyField label="Monto crédito" value={draft.mortgage_amount_clp} onChange={(value) => set("mortgage_amount_clp", value)} /><PercentField label="Tasa hipotecaria anual" value={draft.annual_mortgage_rate} onChange={(value) => set("annual_mortgage_rate", value)} /><NumberField label="Plazo crédito (años)" value={draft.mortgage_term_years} onChange={(value) => set("mortgage_term_years", value)} /><MoneyField label="Dividendo mensual estimado" value={draft.monthly_payment_estimated} onChange={(value) => set("monthly_payment_estimated", value)} /></div></FormSection>
+      <FormSection title="Compra y crédito"><div className="form-grid"><MoneyField label="Valor UF" value={draft.uf_value} onChange={(value) => recalculateValue(value, draft.property_value_uf)} /><NumberField label="Valor propiedad (UF)" value={draft.property_value_uf} onChange={(value) => recalculateValue(draft.uf_value, value)} /><MoneyField label="Valor propiedad (CLP)" value={draft.property_value_clp} onChange={(value) => set("property_value_clp", value)} /><NumberField label="Valor de mercado actual (UF, 0 = automático)" value={draft.current_market_value_uf} onChange={(value) => set("current_market_value_uf", value)} /><MoneyField label="Pie pagado" value={draft.down_payment_clp} onChange={(value) => set("down_payment_clp", value)} /><MoneyField label="Monto crédito" value={draft.mortgage_amount_clp} onChange={(value) => set("mortgage_amount_clp", value)} /><PercentField label="Tasa hipotecaria anual" value={draft.annual_mortgage_rate} onChange={(value) => set("annual_mortgage_rate", value)} /><NumberField label="Plazo crédito (años)" value={draft.mortgage_term_years} onChange={(value) => set("mortgage_term_years", value)} /><MoneyField label="Dividendo mensual estimado" value={draft.monthly_payment_estimated} onChange={(value) => set("monthly_payment_estimated", value)} /></div></FormSection>
       <FormSection title="Operación mensual estimada"><div className="form-grid"><MoneyField label="Arriendo inicial" value={draft.initial_rent_estimated} onChange={(value) => set("initial_rent_estimated", value)} /><PercentField label="Crecimiento anual arriendo" value={draft.rent_growth_annual} onChange={(value) => set("rent_growth_annual", value)} /><PercentField label="Vacancia anual" value={draft.vacancy_rate_estimated} onChange={(value) => set("vacancy_rate_estimated", value)} /><PercentField label="Comisión administradora" value={draft.admin_rate_estimated} onChange={(value) => set("admin_rate_estimated", value)} /><MoneyField label="Gastos comunes mensuales" value={draft.monthly_common_expenses_estimated} onChange={(value) => set("monthly_common_expenses_estimated", value)} /><PercentField label="Reajuste gastos comunes" value={draft.common_expenses_growth_annual} onChange={(value) => set("common_expenses_growth_annual", value)} /><MoneyField label="Contribuciones anuales" value={draft.annual_contributions_estimated} onChange={(value) => set("annual_contributions_estimated", value)} /><PercentField label="Reajuste contribuciones" value={draft.contributions_growth_annual} onChange={(value) => set("contributions_growth_annual", value)} /><MoneyField label="Seguro anual" value={draft.annual_insurance_estimated} onChange={(value) => set("annual_insurance_estimated", value)} /><PercentField label="Reajuste seguro" value={draft.insurance_growth_annual} onChange={(value) => set("insurance_growth_annual", value)} /><PercentField label="Mantención anual / valor" value={draft.maintenance_rate_estimated} onChange={(value) => set("maintenance_rate_estimated", value)} /></div></FormSection>
       <FormSection title="Gasto extraordinario periódico"><div className="form-grid"><MoneyField label="Monto actual por evento (0 lo desactiva)" value={draft.periodic_expense_clp} onChange={(value) => set("periodic_expense_clp", value)} /><NumberField label="Frecuencia (años)" value={draft.periodic_expense_interval_years} onChange={(value) => set("periodic_expense_interval_years", value)} /><PercentField label="Reajuste anual del monto" value={draft.periodic_expense_growth_annual} onChange={(value) => set("periodic_expense_growth_annual", value)} /></div></FormSection>
       <FormSection title="Venta proyectada"><div className="form-grid"><PercentField label="Plusvalía anual" value={draft.annual_appreciation_rate} onChange={(value) => set("annual_appreciation_rate", value)} /><NumberField label="Año planificado de venta" value={draft.planned_sale_year} onChange={(value) => set("planned_sale_year", Math.max(1, Math.min(30, value)))} /><PercentField label="Costo de venta" value={draft.sale_cost_rate} onChange={(value) => set("sale_cost_rate", value)} /><PercentField label="Gastos de cierre" value={draft.closing_cost_rate} onChange={(value) => set("closing_cost_rate", value)} /><MoneyField label="Devolución efectiva IVA" value={draft.iva_refund_clp} onChange={(value) => set("iva_refund_clp", value)} /><Field label="Notas" wide><textarea value={draft.notes} onChange={(e) => set("notes", e.target.value)} rows={3} placeholder="Supuestos, condiciones del crédito, observaciones…" /></Field></div></FormSection>
@@ -612,7 +632,7 @@ function ChartEmpty({ onRegister }: { onRegister: () => void }) { return <div cl
 function InlineEmpty({ onAction }: { onAction?: () => void }) { return <div className="inline-empty"><ReceiptText size={24} /><div><strong>Sin registros mensuales</strong><span>Cuando cierres un mes aparecerá aquí.</span></div>{onAction && <button className="text-button" onClick={onAction}>Agregar mes</button>}</div>; }
 function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name: string; value: number; color: string }>; label?: string }) { if (!active || !payload?.length) return null; return <div className="chart-tooltip"><b>{label}</b>{payload.map((item) => <div key={item.name}><span style={{ background: item.color }} />{item.name}<strong>{formatClp(item.value, true)}</strong></div>)}</div>; }
 
-function normalizeProject(draft: ProjectDraft): ProjectDraft { const numericKeys: Array<keyof ProjectDraft> = ["uf_value", "property_value_uf", "property_value_clp", "down_payment_clp", "mortgage_amount_clp", "annual_mortgage_rate", "mortgage_term_years", "monthly_payment_estimated", "initial_rent_estimated", "rent_growth_annual", "vacancy_rate_estimated", "admin_rate_estimated", "monthly_common_expenses_estimated", "common_expenses_growth_annual", "annual_contributions_estimated", "contributions_growth_annual", "annual_insurance_estimated", "insurance_growth_annual", "maintenance_rate_estimated", "periodic_expense_interval_years", "periodic_expense_clp", "periodic_expense_growth_annual", "annual_appreciation_rate", "closing_cost_rate", "sale_cost_rate", "iva_refund_clp", "planned_sale_year"]; const result = { ...draft }; numericKeys.forEach((key) => { (result as Record<string, unknown>)[key] = number(result[key]); }); return result; }
+function normalizeProject(draft: ProjectDraft): ProjectDraft { const numericKeys: Array<keyof ProjectDraft> = ["uf_value", "property_value_uf", "property_value_clp", "current_market_value_uf", "down_payment_clp", "mortgage_amount_clp", "annual_mortgage_rate", "mortgage_term_years", "monthly_payment_estimated", "initial_rent_estimated", "rent_growth_annual", "vacancy_rate_estimated", "admin_rate_estimated", "monthly_common_expenses_estimated", "common_expenses_growth_annual", "annual_contributions_estimated", "contributions_growth_annual", "annual_insurance_estimated", "insurance_growth_annual", "maintenance_rate_estimated", "periodic_expense_interval_years", "periodic_expense_clp", "periodic_expense_growth_annual", "annual_appreciation_rate", "closing_cost_rate", "sale_cost_rate", "iva_refund_clp", "planned_sale_year"]; const result = { ...draft }; numericKeys.forEach((key) => { (result as Record<string, unknown>)[key] = number(result[key]); }); return result; }
 function normalizeRecord(draft: RecordDraft): RecordDraft { const numericKeys: Array<keyof RecordDraft> = ["rent_collected", "mortgage_payment", "vacancy_days", "admin_fee", "common_expenses", "contributions", "insurance", "maintenance", "repairs", "other_expenses"]; const result = { ...draft, period: normalizePeriod(draft.period) }; numericKeys.forEach((key) => { (result as Record<string, unknown>)[key] = number(result[key]); }); return result; }
 function toProjectDraft(project: Project): ProjectDraft { const draft = { ...project } as Record<string, unknown>; ["id", "owner_id", "created_at", "updated_at"].forEach((key) => delete draft[key]); return { ...EMPTY_PROJECT, ...draft } as ProjectDraft; }
 function readLocal<T>(key: string, fallback: T): T { try { const raw = localStorage.getItem(key); return raw ? JSON.parse(raw) as T : fallback; } catch { return fallback; } }

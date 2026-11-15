@@ -8,6 +8,7 @@ export type Project = {
   uf_value: number;
   property_value_uf: number;
   property_value_clp: number;
+  current_market_value_uf: number;
   down_payment_clp: number;
   mortgage_amount_clp: number;
   annual_mortgage_rate: number;
@@ -60,6 +61,81 @@ export type MonthlyRecord = {
 export type ProjectDraft = Omit<Project, "id" | "owner_id" | "created_at" | "updated_at">;
 export type RecordDraft = Omit<MonthlyRecord, "id" | "owner_id" | "created_at" | "updated_at">;
 
+export type InvestmentMember = {
+  id: string;
+  project_id: string;
+  user_id?: string | null;
+  invited_email?: string | null;
+  display_name: string;
+  role: "owner" | "editor" | "viewer";
+  ownership_percentage: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type TransactionCategory =
+  | "rent"
+  | "iva_refund"
+  | "other_income"
+  | "down_payment"
+  | "closing_costs"
+  | "mortgage"
+  | "administration"
+  | "common_expenses"
+  | "contributions"
+  | "insurance"
+  | "maintenance"
+  | "repairs"
+  | "furnishing"
+  | "other_expense";
+
+export type TransactionSplit = {
+  id?: string;
+  project_id: string;
+  transaction_id?: string;
+  member_id: string;
+  amount_clp: number;
+  amount_uf: number;
+};
+
+export type InvestmentTransaction = {
+  id: string;
+  project_id: string;
+  transaction_date: string;
+  category: TransactionCategory;
+  direction: "income" | "expense";
+  amount_clp: number;
+  uf_value: number;
+  amount_uf: number;
+  notes: string;
+  created_by?: string;
+  created_at?: string;
+  updated_at?: string;
+  investment_transaction_splits?: TransactionSplit[];
+};
+
+export const TRANSACTION_CATEGORIES: Array<{
+  value: TransactionCategory;
+  label: string;
+  direction: "income" | "expense";
+  operating: boolean;
+}> = [
+  { value: "rent", label: "Arriendo recibido", direction: "income", operating: true },
+  { value: "iva_refund", label: "Devolución de IVA", direction: "income", operating: false },
+  { value: "other_income", label: "Otro ingreso", direction: "income", operating: true },
+  { value: "down_payment", label: "Pie", direction: "expense", operating: false },
+  { value: "closing_costs", label: "Gastos de compra / cierre", direction: "expense", operating: false },
+  { value: "mortgage", label: "Dividendo", direction: "expense", operating: true },
+  { value: "administration", label: "Comisión administradora", direction: "expense", operating: true },
+  { value: "common_expenses", label: "Gastos comunes", direction: "expense", operating: true },
+  { value: "contributions", label: "Contribuciones", direction: "expense", operating: true },
+  { value: "insurance", label: "Seguro", direction: "expense", operating: true },
+  { value: "maintenance", label: "Mantención", direction: "expense", operating: true },
+  { value: "repairs", label: "Arreglos / reparaciones", direction: "expense", operating: true },
+  { value: "furnishing", label: "Muebles / equipamiento", direction: "expense", operating: false },
+  { value: "other_expense", label: "Otro desembolso", direction: "expense", operating: true },
+];
+
 export type MonthlyComparison = {
   period: string;
   label: string;
@@ -81,6 +157,7 @@ export const EMPTY_PROJECT: ProjectDraft = {
   uf_value: 39842,
   property_value_uf: 5000,
   property_value_clp: 199210000,
+  current_market_value_uf: 0,
   down_payment_clp: 39842000,
   mortgage_amount_clp: 159368000,
   annual_mortgage_rate: 0.04,
@@ -222,6 +299,165 @@ export function mortgageBalance(project: Project, monthsPaid: number) {
   return Math.max(0, principal * Math.pow(1 + rate, paid) - payment * ((Math.pow(1 + rate, paid) - 1) / rate));
 }
 
+export function mortgageSchedule(project: Project, monthsPaid: number) {
+  const limit = Math.min(
+    Math.max(0, Math.floor(monthsPaid)),
+    Math.max(1, number(project.mortgage_term_years) * 12),
+  );
+  const payment = mortgagePayment(project);
+  const monthlyRate = number(project.annual_mortgage_rate) / 12;
+  let balance = number(project.mortgage_amount_clp);
+  let interestPaid = 0;
+  let principalPaid = 0;
+  for (let month = 0; month < limit && balance > 0; month += 1) {
+    const interest = balance * monthlyRate;
+    const principal = Math.min(balance, Math.max(0, payment - interest));
+    interestPaid += interest;
+    principalPaid += principal;
+    balance -= principal;
+  }
+  return { payment, balance: Math.max(0, balance), interestPaid, principalPaid, payments: limit };
+}
+
+export function currentInvestmentSnapshot(
+  project: Project,
+  transactions: InvestmentTransaction[],
+  currentUf: number,
+  valuationDate = new Date().toISOString().slice(0, 10),
+) {
+  const elapsedMonths = Math.max(0, monthsBetween(project.purchase_date, valuationDate));
+  const years = elapsedMonths / 12;
+  const engineValueUf = number(project.property_value_uf) *
+    Math.pow(1 + number(project.annual_appreciation_rate), years);
+  const marketValueUf = number(project.current_market_value_uf) > 0
+    ? number(project.current_market_value_uf)
+    : engineValueUf;
+  const marketValueClp = marketValueUf * number(currentUf);
+  const ufIndexedPurchaseValueClp = number(project.property_value_uf) * number(currentUf);
+  const schedule = mortgageSchedule(project, elapsedMonths);
+  const mortgagePaid = sumTransactions(transactions, "mortgage", "expense");
+  const rentCollected = sumTransactions(transactions, "rent", "income");
+  const totalIncome = transactions
+    .filter((item) => item.direction === "income")
+    .reduce((sum, item) => sum + number(item.amount_clp), 0);
+  const totalExpenses = transactions
+    .filter((item) => item.direction === "expense")
+    .reduce((sum, item) => sum + number(item.amount_clp), 0);
+  const operatingCashflow = transactions
+    .filter((item) => TRANSACTION_CATEGORIES.find((category) => category.value === item.category)?.operating)
+    .reduce((sum, item) => sum + (item.direction === "income" ? 1 : -1) * number(item.amount_clp), 0);
+  const equity = marketValueClp - schedule.balance;
+  const actualIrr = calculateXirr([
+    ...transactions.map((item) => ({
+      date: item.transaction_date,
+      amount: (item.direction === "income" ? 1 : -1) * number(item.amount_clp),
+    })),
+    { date: valuationDate, amount: Math.max(0, equity) },
+  ]);
+  return {
+    elapsedMonths,
+    engineValueUf,
+    marketValueUf,
+    marketValueClp,
+    ufIndexedPurchaseValueClp,
+    mortgageBalance: schedule.balance,
+    scheduledPrincipalPaid: schedule.principalPaid,
+    scheduledInterestPaid: schedule.interestPaid,
+    scheduledMortgagePaid: schedule.payment * schedule.payments,
+    mortgagePaid,
+    rentCollected,
+    totalIncome,
+    totalExpenses,
+    operatingCashflow,
+    equity,
+    actualIrr,
+  };
+}
+
+export function memberContributionSummary(
+  members: InvestmentMember[],
+  transactions: InvestmentTransaction[],
+  currentUf: number,
+) {
+  return members.map((member) => {
+    const splits = transactions.flatMap((transaction) =>
+      (transaction.investment_transaction_splits ?? [])
+        .filter((split) => split.member_id === member.id)
+        .map((split) => ({ transaction, split })),
+    );
+    const expensesClp = splits
+      .filter(({ transaction }) => transaction.direction === "expense")
+      .reduce((sum, { split }) => sum + number(split.amount_clp), 0);
+    const incomeClp = splits
+      .filter(({ transaction }) => transaction.direction === "income")
+      .reduce((sum, { split }) => sum + number(split.amount_clp), 0);
+    const expensesUf = splits
+      .filter(({ transaction }) => transaction.direction === "expense")
+      .reduce((sum, { split }) => sum + number(split.amount_uf), 0);
+    const incomeUf = splits
+      .filter(({ transaction }) => transaction.direction === "income")
+      .reduce((sum, { split }) => sum + number(split.amount_uf), 0);
+    return {
+      member,
+      expensesClp,
+      incomeClp,
+      netContributionClp: expensesClp - incomeClp,
+      netContributionUf: expensesUf - incomeUf,
+      currentEquivalentClp: (expensesUf - incomeUf) * number(currentUf),
+    };
+  });
+}
+
+export function calculateXirr(flows: Array<{ date: string; amount: number }>) {
+  const valid = flows
+    .filter((flow) => Number.isFinite(flow.amount) && flow.amount !== 0 && /^\d{4}-\d{2}-\d{2}/.test(flow.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!valid.some((flow) => flow.amount < 0) || !valid.some((flow) => flow.amount > 0)) return null;
+  const start = new Date(`${valid[0].date.slice(0, 10)}T12:00:00`).getTime();
+  const npv = (rate: number) => valid.reduce((sum, flow) => {
+    const date = new Date(`${flow.date.slice(0, 10)}T12:00:00`).getTime();
+    const years = (date - start) / (365.25 * 24 * 60 * 60 * 1000);
+    return sum + flow.amount / Math.pow(1 + rate, years);
+  }, 0);
+  let low = -0.9999;
+  let high = 10;
+  let lowValue = npv(low);
+  let highValue = npv(high);
+  if (lowValue * highValue > 0) return null;
+  for (let iteration = 0; iteration < 160; iteration += 1) {
+    const middle = (low + high) / 2;
+    const middleValue = npv(middle);
+    if (Math.abs(middleValue) < 0.01) return middle;
+    if (lowValue * middleValue <= 0) {
+      high = middle;
+      highValue = middleValue;
+    } else {
+      low = middle;
+      lowValue = middleValue;
+    }
+  }
+  return (low + high) / 2;
+}
+
+export function formatUf(value: number | null | undefined, maximumFractionDigits = 2) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return `${new Intl.NumberFormat("es-CL", { maximumFractionDigits }).format(value)} UF`;
+}
+
+export function transactionCategory(category: TransactionCategory) {
+  return TRANSACTION_CATEGORIES.find((item) => item.value === category) ?? TRANSACTION_CATEGORIES.at(-1)!;
+}
+
+function sumTransactions(
+  transactions: InvestmentTransaction[],
+  category: TransactionCategory,
+  direction: "income" | "expense",
+) {
+  return transactions
+    .filter((item) => item.category === category && item.direction === direction)
+    .reduce((sum, item) => sum + number(item.amount_clp), 0);
+}
+
 export function buildAnnualProjection(project: Project, horizon = 30) {
   let cumulativeCashflow = 0;
   return Array.from({ length: horizon }, (_, index) => {
@@ -249,15 +485,34 @@ export function buildAnnualProjection(project: Project, horizon = 30) {
       valueStart * number(project.maintenance_rate_estimated) +
       extraordinary;
     const mortgage = year <= number(project.mortgage_term_years) ? mortgagePayment(project) * 12 : 0;
+    const balanceStart = mortgageBalance(project, (year - 1) * 12);
+    const balance = mortgageBalance(project, year * 12);
+    const principalPaid = Math.max(0, balanceStart - balance);
+    const interestPaid = Math.max(0, mortgage - principalPaid);
     const cashflow = annualRent - operatingExpenses - mortgage;
     cumulativeCashflow += cashflow;
-    const balance = mortgageBalance(project, year * 12);
     const netSale = valueEnd * (1 - number(project.sale_cost_rate)) - balance;
     const netResult =
       netSale + cumulativeCashflow - number(project.down_payment_clp) -
       number(project.property_value_clp) * number(project.closing_cost_rate) + number(project.iva_refund_clp);
-    return { year, value: valueEnd, annualRent, operatingExpenses, extraordinary, mortgage, cashflow, cumulativeCashflow, balance, netSale, netResult };
+    return { year, value: valueEnd, annualRent, operatingExpenses, extraordinary, mortgage, principalPaid, interestPaid, cashflow, cumulativeCashflow, balance, netSale, netResult };
   });
+}
+
+export function projectedInvestmentIrr(project: Project, saleYear = project.planned_sale_year) {
+  const projection = buildAnnualProjection(project, Math.max(1, saleYear));
+  const purchase = new Date(`${project.purchase_date}T12:00:00`);
+  const initialInvestment = number(project.down_payment_clp) +
+    number(project.property_value_clp) * number(project.closing_cost_rate);
+  const flows: Array<{ date: string; amount: number }> = [
+    { date: project.purchase_date, amount: -initialInvestment + number(project.iva_refund_clp) },
+  ];
+  projection.slice(0, saleYear).forEach((row) => {
+    const date = new Date(purchase.getFullYear() + row.year, purchase.getMonth(), purchase.getDate(), 12);
+    const amount = row.cashflow + (row.year === saleYear ? row.netSale : 0);
+    flows.push({ date: date.toISOString().slice(0, 10), amount });
+  });
+  return calculateXirr(flows);
 }
 
 export function buildComparisons(project: Project, records: MonthlyRecord[]): MonthlyComparison[] {
